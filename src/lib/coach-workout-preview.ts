@@ -5,7 +5,7 @@ import type {
 } from "./coach-workouts";
 import {
   DEFAULT_REST_SECONDS,
-  isValidRepPrescription,
+  isValidSetPrescription,
   isValidSuggestedWeightRange,
 } from "./coach-workouts";
 
@@ -15,6 +15,7 @@ export type PreviewSetResult = {
   actualWeight: number;
   actualWeightUnitId: string;
   actualReps: number;
+  actualSeconds: number;
   notesToCoach?: string;
   completed: boolean;
 };
@@ -50,6 +51,7 @@ export function initSessionResults(workout: ProgramWorkout): SessionResultsMap {
         actualWeight: 0,
         actualWeightUnitId: set.weightUnitId,
         actualReps: 0,
+        actualSeconds: set.setType === "static_stretch" ? (set.targetSeconds ?? 0) : 0,
         completed: false,
       };
     }
@@ -77,7 +79,7 @@ export function flattenSets(workout: ProgramWorkout): FlatSetRef[] {
 
 export function hasAnyValidSet(workout: ProgramWorkout): boolean {
   return workout.exercises.some((exercise) =>
-    exercise.sets.some((set) => isValidRepPrescription(set) && isValidSuggestedWeightRange(set)),
+    exercise.sets.some((set) => isValidSetPrescription(set) && isValidSuggestedWeightRange(set)),
   );
 }
 
@@ -124,6 +126,7 @@ export function hasAnyProgress(workout: ProgramWorkout, results: SessionResultsM
       const result = results[resultKey(exercise.id, set.id)];
       if (!result) continue;
       if (result.completed || result.actualReps !== 0 || result.actualWeight !== 0) return true;
+      if (result.actualSeconds !== 0) return true;
       if (result.actualWeightUnitId !== set.weightUnitId) return true;
       if (result.notesToCoach?.trim()) return true;
     }

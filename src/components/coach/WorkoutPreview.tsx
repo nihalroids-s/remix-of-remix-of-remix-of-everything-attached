@@ -42,7 +42,7 @@ import {
   type ProgramWorkout,
   SET_NOTES_MAX_LENGTH,
   SET_TYPE_LABELS,
-  formatRepPrescription,
+  formatSetPrescription,
   formatSuggestedWeightRange,
   loadWorkouts,
 } from "@/lib/coach-workouts";
@@ -70,7 +70,13 @@ type Mode = "chooser" | "classic" | "guided" | "summary";
 type Action =
   | { type: "set-result"; key: string; patch: Partial<PreviewSetResult> }
   | { type: "toggle-complete"; key: string }
-  | { type: "mark-complete"; key: string; actualReps?: number; actualWeight?: number }
+  | {
+      type: "mark-complete";
+      key: string;
+      actualReps?: number;
+      actualWeight?: number;
+      actualSeconds?: number;
+    }
   | { type: "reset"; results: SessionResultsMap };
 
 function resultsReducer(state: SessionResultsMap, action: Action): SessionResultsMap {
@@ -97,6 +103,7 @@ function resultsReducer(state: SessionResultsMap, action: Action): SessionResult
           ...existing,
           actualReps: action.actualReps ?? existing.actualReps,
           actualWeight: action.actualWeight ?? existing.actualWeight,
+          actualSeconds: action.actualSeconds ?? existing.actualSeconds,
           completed: true,
         },
       };
@@ -709,6 +716,13 @@ function ClassicMode({
                             patch: { actualReps: clampNonNegative(value) },
                           })
                         }
+                        onSeconds={(value) =>
+                          dispatch({
+                            type: "set-result",
+                            key,
+                            patch: { actualSeconds: clampNonNegative(value) },
+                          })
+                        }
                         onNotes={(notesToCoach) =>
                           dispatch({
                             type: "set-result",
@@ -759,6 +773,7 @@ function ClassicSetRow({
   onWeight,
   onWeightUnit,
   onReps,
+  onSeconds,
   onNotes,
   onCreateWeightUnit,
   onToggle,
@@ -774,13 +789,14 @@ function ClassicSetRow({
   onWeight: (number: number) => void;
   onWeightUnit: (unitId: string) => void;
   onReps: (number: number) => void;
+  onSeconds: (number: number) => void;
   onNotes: (notes: string | undefined) => void;
   onCreateWeightUnit: (unit: WeightUnit) => void;
   onToggle: () => void;
 }) {
   const chips: string[] = [SET_TYPE_LABELS[set.setType]];
   if (set.intensity) chips.push(INTENSITY_LABELS[set.intensity]);
-  const repPrescription = formatRepPrescription(set);
+  const repPrescription = formatSetPrescription(set);
   if (repPrescription) chips.push(repPrescription);
   const suggestedWeight = formatSuggestedWeightRange(set, suggestedWeightUnit.shortForm);
   if (set.restSeconds !== undefined) chips.push(`rest ${set.restSeconds}s`);
@@ -885,16 +901,29 @@ function ClassicSetRow({
             htmlFor={`r-${result.setId}`}
             className="text-[1rem] font-medium leading-5 text-muted-foreground"
           >
-            Reps done
+            {set.setType === "static_stretch"
+              ? "Prescribed time"
+              : set.setType === "static_strength"
+                ? "Time done (sec)"
+                : "Reps done"}
           </Label>
-          <DefaultZeroNumberInput
-            id={`r-${result.setId}`}
-            value={result.actualReps}
-            onChange={onReps}
-            integer
-            disabled={selecting}
-            className="min-h-12 rounded-xl text-[1rem]"
-          />
+          {set.setType === "static_stretch" ? (
+            <p
+              id={`r-${result.setId}`}
+              className="min-h-12 rounded-xl border border-border bg-muted/40 px-3 py-2.5 text-[1rem] leading-6 tabular-nums text-foreground"
+            >
+              {set.targetSeconds !== undefined ? `${set.targetSeconds}s` : "—"}
+            </p>
+          ) : (
+            <DefaultZeroNumberInput
+              id={`r-${result.setId}`}
+              value={set.setType === "static_strength" ? result.actualSeconds : result.actualReps}
+              onChange={set.setType === "static_strength" ? onSeconds : onReps}
+              integer
+              disabled={selecting}
+              className="min-h-12 rounded-xl text-[1rem]"
+            />
+          )}
         </div>
         <div className="space-y-1.5">
           <Label
@@ -1045,6 +1074,13 @@ function GuidedMode({
                 patch: { actualReps: clampNonNegative(value) },
               })
             }
+            onSeconds={(value) =>
+              dispatch({
+                type: "set-result",
+                key,
+                patch: { actualSeconds: clampNonNegative(value) },
+              })
+            }
             onNotes={(notesToCoach) =>
               dispatch({
                 type: "set-result",
@@ -1053,8 +1089,16 @@ function GuidedMode({
               })
             }
             onCreateWeightUnit={onCreateWeightUnit}
+            hasUpcomingSupersets={upcomingSupersets.length > 0}
             onComplete={() => {
-              dispatch({ type: "mark-complete", key });
+              dispatch({
+                type: "mark-complete",
+                key,
+                actualSeconds:
+                  currentRef.set.setType === "static_stretch"
+                    ? (currentRef.set.targetSeconds ?? 0)
+                    : undefined,
+              });
               const nextIndex = findNextIncomplete(flat, results, index + 1);
               if (nextIndex >= flat.length) {
                 onFinish();
@@ -1094,7 +1138,7 @@ function GuidedMode({
                         </span>
                       </div>
                       <p className="mt-1 text-[0.875rem] leading-5 text-muted-foreground">
-                        {formatRepPrescription(upRef.set) || SET_TYPE_LABELS[upRef.set.setType]}
+                        {formatSetPrescription(upRef.set) || SET_TYPE_LABELS[upRef.set.setType]}
                       </p>
                     </div>
                   );
@@ -1138,8 +1182,10 @@ function PerformPanel({
   onWeight,
   onWeightUnit,
   onReps,
+  onSeconds,
   onNotes,
   onCreateWeightUnit,
+  hasUpcomingSupersets,
   onComplete,
   onSkip,
 }: {
@@ -1151,8 +1197,10 @@ function PerformPanel({
   onWeight: (number: number) => void;
   onWeightUnit: (unitId: string) => void;
   onReps: (number: number) => void;
+  onSeconds: (number: number) => void;
   onNotes: (notes: string | undefined) => void;
   onCreateWeightUnit: (unit: WeightUnit) => void;
+  hasUpcomingSupersets: boolean;
   onComplete: () => void;
   onSkip: () => void;
 }) {
@@ -1161,7 +1209,7 @@ function PerformPanel({
   const { exercise, set, exerciseIndex, setIndex, totalSetsInExercise } = ref_;
   const chips: string[] = [SET_TYPE_LABELS[set.setType]];
   if (set.intensity) chips.push(INTENSITY_LABELS[set.intensity]);
-  const repPrescription = formatRepPrescription(set);
+  const repPrescription = formatSetPrescription(set);
   if (repPrescription) chips.push(repPrescription);
   if (set.restSeconds !== undefined) chips.push(`rest ${set.restSeconds}s`);
   const suggestedWeight = formatSuggestedWeightRange(set, suggestedWeightUnit.shortForm);
@@ -1229,12 +1277,28 @@ function PerformPanel({
             large
           />
         </div>
-        <RepsStepper
-          id={`guided-reps-${set.id}`}
-          label="Reps done"
-          value={result.actualReps}
-          onChange={onReps}
-        />
+        {set.setType === "static_stretch" ? (
+          <StaticStretchTimer
+            id={`guided-time-${set.id}`}
+            seconds={set.targetSeconds ?? 0}
+            inline={hasUpcomingSupersets}
+          />
+        ) : set.setType === "static_strength" ? (
+          <RepsStepper
+            id={`guided-time-${set.id}`}
+            label="Time done (sec)"
+            value={result.actualSeconds}
+            onChange={onSeconds}
+            step={5}
+          />
+        ) : (
+          <RepsStepper
+            id={`guided-reps-${set.id}`}
+            label="Reps done"
+            value={result.actualReps}
+            onChange={onReps}
+          />
+        )}
         <div className="space-y-1.5">
           <Label htmlFor={`guided-notes-${set.id}`} className="text-[1rem] font-medium leading-5 text-muted-foreground">
             Notes to your coach
@@ -1270,12 +1334,15 @@ function RepsStepper({
   label,
   value,
   onChange,
+  step = 1,
 }: {
   id: string;
   label: string;
   value: number;
   onChange: (number: number) => void;
+  step?: number;
 }) {
+  const unitLabel = step > 1 ? "seconds" : "reps";
   return (
     <div className="space-y-1.5">
       <Label htmlFor={id} className="text-[1rem] font-medium leading-5 text-muted-foreground">
@@ -1286,8 +1353,8 @@ function RepsStepper({
           type="button"
           variant="outline"
           size="icon"
-          aria-label="Decrease reps"
-          onClick={() => onChange(clampNonNegative(value - 1))}
+          aria-label={`Decrease ${unitLabel}`}
+          onClick={() => onChange(clampNonNegative(value - step))}
           className="h-11 w-11 shrink-0"
         >
           <Minus className="h-4 w-4" aria-hidden="true" />
@@ -1303,13 +1370,123 @@ function RepsStepper({
           type="button"
           variant="outline"
           size="icon"
-          aria-label="Increase reps"
-          onClick={() => onChange(clampNonNegative(value + 1))}
+          aria-label={`Increase ${unitLabel}`}
+          onClick={() => onChange(clampNonNegative(value + step))}
           className="h-11 w-11 shrink-0"
         >
           <Plus className="h-4 w-4" aria-hidden="true" />
         </Button>
       </div>
+    </div>
+  );
+}
+
+function StaticStretchTimer({
+  id,
+  seconds,
+  inline,
+}: {
+  id: string;
+  seconds: number;
+  inline: boolean;
+}) {
+  const [remaining, setRemaining] = useState(seconds);
+  const remainingRef = useRef(remaining);
+  remainingRef.current = remaining;
+
+  useEffect(() => {
+    setRemaining(seconds);
+  }, [seconds]);
+
+  useEffect(() => {
+    if (seconds <= 0) return;
+    const id_ = window.setInterval(() => {
+      setRemaining((r) => (r > 0 ? r - 1 : 0));
+    }, 1000);
+    return () => window.clearInterval(id_);
+  }, [seconds]);
+
+  const pct =
+    seconds > 0 ? Math.max(0, Math.min(100, ((seconds - remaining) / seconds) * 100)) : 100;
+  const done = seconds > 0 && remaining <= 0;
+
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={id} className="text-[1rem] font-medium leading-5 text-muted-foreground">
+        {inline ? "Hold time" : "Hold — countdown"}
+      </Label>
+      {inline ? (
+        <div className="flex items-center gap-3 rounded-xl border border-border bg-background p-3.5">
+          <div
+            className="h-2 flex-1 overflow-hidden rounded-full bg-muted"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(pct)}
+            aria-label="Static stretch hold progress"
+          >
+            <div className="h-full bg-primary" style={{ width: `${pct}%` }} />
+          </div>
+          <span
+            id={id}
+            className="text-[0.875rem] font-medium leading-5 tabular-nums text-foreground"
+            role="timer"
+            aria-live="polite"
+            aria-label={`${remaining} seconds remaining`}
+          >
+            {formatElapsed(remaining)}
+          </span>
+        </div>
+      ) : (
+        <div className="flex items-center justify-center rounded-xl border border-border bg-background p-5">
+          <div
+            className="relative h-40 w-40"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(pct)}
+            aria-label="Static stretch hold progress"
+          >
+            <svg viewBox="0 0 120 120" className="h-full w-full -rotate-90" aria-hidden="true">
+              <circle
+                cx="60"
+                cy="60"
+                r="52"
+                fill="none"
+                strokeWidth="8"
+                className="stroke-muted"
+              />
+              <circle
+                cx="60"
+                cy="60"
+                r="52"
+                fill="none"
+                strokeWidth="8"
+                strokeLinecap="round"
+                className="stroke-primary transition-[stroke-dashoffset] duration-1000 ease-linear"
+                strokeDasharray={2 * Math.PI * 52}
+                strokeDashoffset={2 * Math.PI * 52 * (1 - pct / 100)}
+              />
+            </svg>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <span
+                id={id}
+                className="text-4xl font-semibold leading-none tabular-nums text-foreground"
+                role="timer"
+                aria-live="polite"
+                aria-label={`${remaining} seconds remaining`}
+              >
+                {formatElapsed(remaining)}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+      {done && (
+        <p className="rounded-md border border-primary/40 bg-primary/10 px-3 py-2 text-[1rem] leading-5 text-primary">
+          Hold complete — log it below when you&apos;re ready.
+        </p>
+      )}
     </div>
   );
 }
@@ -1516,22 +1693,37 @@ function RestPanel({
     <div className="mx-auto flex w-full max-w-md flex-1 flex-col items-center justify-center gap-6 p-6 text-center">
       <p className="text-[0.8125rem] font-medium uppercase tracking-wide text-muted-foreground">Rest</p>
       <div
-        className="text-6xl font-semibold tabular-nums"
-        role="timer"
-        aria-live="polite"
-        aria-label={`Rest ${remaining} seconds remaining`}
-      >
-        {formatElapsed(remaining)}
-      </div>
-      <div
-        className="h-2.5 w-full max-w-xs overflow-hidden rounded-full bg-muted"
+        className="relative h-52 w-52"
         role="progressbar"
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={Math.round(pct)}
         aria-label="Rest progress"
       >
-        <div className="h-full bg-primary" style={{ width: `${pct}%` }} />
+        <svg viewBox="0 0 120 120" className="h-full w-full -rotate-90" aria-hidden="true">
+          <circle cx="60" cy="60" r="52" fill="none" strokeWidth="8" className="stroke-muted" />
+          <circle
+            cx="60"
+            cy="60"
+            r="52"
+            fill="none"
+            strokeWidth="8"
+            strokeLinecap="round"
+            className="stroke-primary transition-[stroke-dashoffset] duration-1000 ease-linear"
+            strokeDasharray={2 * Math.PI * 52}
+            strokeDashoffset={2 * Math.PI * 52 * (1 - pct / 100)}
+          />
+        </svg>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span
+            className="text-6xl font-semibold tabular-nums"
+            role="timer"
+            aria-live="polite"
+            aria-label={`Rest ${remaining} seconds remaining`}
+          >
+            {formatElapsed(remaining)}
+          </span>
+        </div>
       </div>
       <p className="text-sm text-muted-foreground">{nextInfo}</p>
       <div className="flex flex-wrap items-center justify-center gap-2">

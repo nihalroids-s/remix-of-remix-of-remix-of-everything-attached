@@ -15,7 +15,7 @@ import {
   INTENSITY_LABELS,
   type ProgramWorkout,
   SET_TYPE_LABELS,
-  formatRepPrescription,
+  formatSetPrescription,
   formatSuggestedWeightRange,
   loadWorkouts,
 } from "@/lib/coach-workouts";
@@ -113,7 +113,7 @@ export function ClientWorkoutPrescription({ workoutId }: { workoutId: string }) 
                   const unit =
                     weightUnitsById.get(set.weightUnitId) ?? getWeightUnit([], set.weightUnitId);
                   const suggestedWeight = formatSuggestedWeightRange(set, unit.shortForm);
-                  const reps = formatRepPrescription(set);
+                  const reps = formatSetPrescription(set);
                   return (
                     <li key={set.id} className="rounded-md border border-border bg-background p-3">
                       <div className="flex items-center justify-between gap-2">

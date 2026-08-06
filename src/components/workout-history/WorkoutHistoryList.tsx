@@ -506,11 +506,21 @@ function WorkoutSessionDetails({ id, session }: { id: string; session: WorkoutHi
                       </label>
                       <div className="rounded-lg bg-muted/40 p-3.5">
                         <span className="text-[0.8125rem] font-medium uppercase tracking-wide text-muted-foreground">
-                          {set.setType === "warmup" ? "Prescribed reps" : "Reps done"}
+                          {set.setType === "warmup"
+                            ? "Prescribed reps"
+                            : set.setType === "static_stretch"
+                              ? "Prescribed time"
+                              : set.setType === "static_strength"
+                                ? "Time done (sec)"
+                                : "Reps done"}
                         </span>
                         {set.setType === "warmup" ? (
                           <p className="mt-1 text-[1rem] font-medium leading-5">
                             {set.targetReps ?? set.repsDone}
+                          </p>
+                        ) : set.setType === "static_stretch" ? (
+                          <p className="mt-1 text-[1rem] font-medium leading-5">
+                            {set.targetSeconds ?? set.secondsDone}s
                           </p>
                         ) : (
                           <input
@@ -518,7 +528,15 @@ function WorkoutSessionDetails({ id, session }: { id: string; session: WorkoutHi
                             inputMode="numeric"
                             min={0}
                             step={1}
-                            value={Number.isInteger(set.repsDone) ? set.repsDone : 0}
+                            value={
+                              set.setType === "static_strength"
+                                ? Number.isInteger(set.secondsDone)
+                                  ? set.secondsDone
+                                  : 0
+                                : Number.isInteger(set.repsDone)
+                                  ? set.repsDone
+                                  : 0
+                            }
                             onChange={(event) => {
                               const value = event.target.value;
                               const parsed = value === "" ? 0 : Number(value);
@@ -527,13 +545,25 @@ function WorkoutSessionDetails({ id, session }: { id: string; session: WorkoutHi
                                 const next = structuredCloneDeep(current);
                                 next.exercises[exerciseIndex].sets[setIndex] = {
                                   ...set,
-                                  repsDone: Number.isInteger(parsed) && parsed >= 0 ? parsed : 0,
+                                  ...(set.setType === "static_strength"
+                                    ? {
+                                        secondsDone:
+                                          Number.isInteger(parsed) && parsed >= 0 ? parsed : 0,
+                                      }
+                                    : {
+                                        repsDone:
+                                          Number.isInteger(parsed) && parsed >= 0 ? parsed : 0,
+                                      }),
                                 };
                                 return next;
                               });
                             }}
                             className="mt-1 w-full rounded-md border border-border bg-background px-2.5 py-2 text-[1rem] leading-5 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            aria-label={`Reps done for set ${set.setNumber}`}
+                            aria-label={
+                              set.setType === "static_strength"
+                                ? `Time done for set ${set.setNumber}`
+                                : `Reps done for set ${set.setNumber}`
+                            }
                           />
                         )}
                       </div>
@@ -589,7 +619,11 @@ function WorkoutSessionDetails({ id, session }: { id: string; session: WorkoutHi
                     <p className="mt-2.5 text-[0.875rem] leading-5 text-muted-foreground">{formatPrescription(set)}</p>
                     <dl className="mt-3.5 grid grid-cols-2 gap-2.5">
                       <HistoryStat label="Weight done" value={`${formatNumber(set.weightDone)} ${set.weightDoneUnit.shortForm}`} compact />
-                      <HistoryStat label="Reps done" value={`${set.repsDone}`} compact />
+                      {set.setType === "static_strength" || set.setType === "static_stretch" ? (
+                        <HistoryStat label="Time done" value={`${set.secondsDone}s`} compact />
+                      ) : (
+                        <HistoryStat label="Reps done" value={`${set.repsDone}`} compact />
+                      )}
                     </dl>
                     {set.coachNotes && <HistoryNote label="Notes from coach" value={set.coachNotes} />}
                     {set.notesToCoach && <HistoryNote label="Notes to coach" value={set.notesToCoach} emphasized />}
@@ -698,7 +732,10 @@ function formatPrescription(set: WorkoutSessionSetSnapshot): string {
       `suggested ${formatNumber(set.suggestedWeightMin)}–${formatNumber(set.suggestedWeightMax)} ${set.suggestedWeightUnit.shortForm}`,
     );
   }
-  if (set.targetReps !== undefined) parts.push(`${set.targetReps} reps`);
+  if (set.targetSeconds !== undefined) parts.push(`${set.targetSeconds}s hold`);
+  else if (set.timeRangeMin !== undefined && set.timeRangeMax !== undefined) {
+    parts.push(`${set.timeRangeMin}–${set.timeRangeMax}s`);
+  } else if (set.targetReps !== undefined) parts.push(`${set.targetReps} reps`);
   else if (set.repRangeMin !== undefined && set.repRangeMax !== undefined) {
     parts.push(`${set.repRangeMin}–${set.repRangeMax} reps`);
   }

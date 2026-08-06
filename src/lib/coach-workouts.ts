@@ -1,7 +1,13 @@
 import { DEFAULT_WEIGHT_UNIT_ID, getWeightIncrement } from "./coach-weight-units";
 import { emitCloudDataChanged } from "./cloud-events";
 
-export type SetType = "warmup" | "normal" | "superset" | "alternating";
+export type SetType =
+  | "warmup"
+  | "normal"
+  | "superset"
+  | "alternating"
+  | "static_strength"
+  | "static_stretch";
 export type Intensity = "2rir" | "1rir" | "failure";
 
 export type WorkoutSetPrescription = {
@@ -12,6 +18,9 @@ export type WorkoutSetPrescription = {
   targetReps?: number;
   repRangeMin?: number;
   repRangeMax?: number;
+  timeRangeMin?: number;
+  timeRangeMax?: number;
+  targetSeconds?: number;
   intensity?: Intensity;
   setType: SetType;
   restSeconds?: number;
@@ -44,6 +53,8 @@ export const SET_TYPES: readonly SetType[] = [
   "normal",
   "superset",
   "alternating",
+  "static_strength",
+  "static_stretch",
 ] as const;
 
 export const INTENSITIES: readonly Intensity[] = ["2rir", "1rir", "failure"] as const;
@@ -53,6 +64,8 @@ export const SET_TYPE_LABELS: Record<SetType, string> = {
   normal: "Normal",
   superset: "Super Set",
   alternating: "Alt. Super Set",
+  static_strength: "Static Strength",
+  static_stretch: "Static Stretch",
 };
 
 export const INTENSITY_LABELS: Record<Intensity, string> = {
@@ -135,6 +148,16 @@ function normalizeSet(value: unknown): WorkoutSetPrescription | null {
     }
   }
 
+  let timeRangeMin = positiveInteger(raw.timeRangeMin);
+  let timeRangeMax = positiveInteger(raw.timeRangeMax);
+  if (timeRangeMin !== undefined && timeRangeMax !== undefined && timeRangeMax <= timeRangeMin) {
+    timeRangeMax = timeRangeMin + 5;
+  }
+  const targetSeconds = positiveInteger(raw.targetSeconds);
+
+  const isStaticStrength = setType === "static_strength";
+  const isStaticStretch = setType === "static_stretch";
+
   return {
     id: raw.id,
     setType,
@@ -142,8 +165,11 @@ function normalizeSet(value: unknown): WorkoutSetPrescription | null {
     suggestedWeightMax,
     weightUnitId,
     targetReps: setType === "warmup" ? (legacyExactReps ?? repRangeMin) : undefined,
-    repRangeMin: setType === "warmup" ? undefined : repRangeMin,
-    repRangeMax: setType === "warmup" ? undefined : repRangeMax,
+    repRangeMin: setType === "warmup" ? undefined : isStaticStrength || isStaticStretch ? undefined : repRangeMin,
+    repRangeMax: setType === "warmup" ? undefined : isStaticStrength || isStaticStretch ? undefined : repRangeMax,
+    timeRangeMin: isStaticStrength ? timeRangeMin : undefined,
+    timeRangeMax: isStaticStrength ? timeRangeMax : undefined,
+    targetSeconds: isStaticStretch ? targetSeconds : undefined,
     intensity: isIntensity(raw.intensity) ? raw.intensity : undefined,
     restSeconds: nonNegativeInteger(raw.restSeconds),
     coachNotes: optionalNotes(raw.coachNotes),
@@ -323,6 +349,25 @@ export function isValidRepPrescription(set: WorkoutSetPrescription): boolean {
   return minimum !== undefined && maximum !== undefined && maximum > minimum;
 }
 
+export function isValidTimePrescription(set: WorkoutSetPrescription): boolean {
+  if (set.setType === "static_strength") {
+    const minimum = positiveInteger(set.timeRangeMin);
+    const maximum = positiveInteger(set.timeRangeMax);
+    return minimum !== undefined && maximum !== undefined && maximum > minimum;
+  }
+  if (set.setType === "static_stretch") {
+    return positiveInteger(set.targetSeconds) !== undefined;
+  }
+  return false;
+}
+
+export function isValidSetPrescription(set: WorkoutSetPrescription): boolean {
+  if (set.setType === "static_strength" || set.setType === "static_stretch") {
+    return isValidTimePrescription(set);
+  }
+  return isValidRepPrescription(set);
+}
+
 export function isValidSuggestedWeightRange(set: WorkoutSetPrescription): boolean {
   const minimum = nonNegativeNumber(set.suggestedWeightMin);
   const maximum = nonNegativeNumber(set.suggestedWeightMax);
@@ -335,6 +380,24 @@ export function formatRepPrescription(set: WorkoutSetPrescription): string | und
   }
   if (set.repRangeMin === undefined || set.repRangeMax === undefined) return undefined;
   return `${set.repRangeMin}–${set.repRangeMax} reps`;
+}
+
+export function formatTimePrescription(set: WorkoutSetPrescription): string | undefined {
+  if (set.setType === "static_strength") {
+    if (set.timeRangeMin === undefined || set.timeRangeMax === undefined) return undefined;
+    return `${set.timeRangeMin}–${set.timeRangeMax}s`;
+  }
+  if (set.setType === "static_stretch") {
+    return set.targetSeconds === undefined ? undefined : `${set.targetSeconds}s hold`;
+  }
+  return undefined;
+}
+
+export function formatSetPrescription(set: WorkoutSetPrescription): string | undefined {
+  if (set.setType === "static_strength" || set.setType === "static_stretch") {
+    return formatTimePrescription(set);
+  }
+  return formatRepPrescription(set);
 }
 
 export function formatSuggestedWeightRange(

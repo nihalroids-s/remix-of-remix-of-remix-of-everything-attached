@@ -909,11 +909,40 @@ function SetRow({
     if (nextType === "warmup") {
       onChange({
         setType: nextType,
-        targetReps: set.targetReps ?? set.repRangeMin,
+        targetReps: set.targetReps ?? set.repRangeMin ?? set.timeRangeMin,
         repRangeMin: undefined,
         repRangeMax: undefined,
+        timeRangeMin: undefined,
+        timeRangeMax: undefined,
+        targetSeconds: undefined,
         intensity: undefined,
         restSeconds: undefined,
+      });
+      return;
+    }
+    if (nextType === "static_strength") {
+      const minimum = set.timeRangeMin ?? set.repRangeMin ?? set.targetReps;
+      onChange({
+        setType: nextType,
+        targetReps: undefined,
+        repRangeMin: undefined,
+        repRangeMax: undefined,
+        targetSeconds: undefined,
+        timeRangeMin: minimum,
+        timeRangeMax: set.timeRangeMax ?? (minimum === undefined ? undefined : minimum + 5),
+      });
+      return;
+    }
+    if (nextType === "static_stretch") {
+      const seconds = set.targetSeconds ?? set.timeRangeMin ?? set.repRangeMin ?? set.targetReps;
+      onChange({
+        setType: nextType,
+        targetReps: undefined,
+        repRangeMin: undefined,
+        repRangeMax: undefined,
+        timeRangeMin: undefined,
+        timeRangeMax: undefined,
+        targetSeconds: seconds,
       });
       return;
     }
@@ -923,11 +952,23 @@ function SetRow({
       targetReps: undefined,
       repRangeMin: minimum,
       repRangeMax: set.repRangeMax ?? (minimum === undefined ? undefined : minimum + 2),
+      timeRangeMin: undefined,
+      timeRangeMax: undefined,
+      targetSeconds: undefined,
     });
   };
 
+  const isStaticStrength = set.setType === "static_strength";
+  const isStaticStretch = set.setType === "static_stretch";
+  const isTimeBased = isStaticStrength || isStaticStretch;
+  const timeRangeInvalid =
+    isStaticStrength &&
+    set.timeRangeMin !== undefined &&
+    set.timeRangeMax !== undefined &&
+    set.timeRangeMax <= set.timeRangeMin;
   const repRangeInvalid =
     set.setType !== "warmup" &&
+    !isTimeBased &&
     set.repRangeMin !== undefined &&
     set.repRangeMax !== undefined &&
     set.repRangeMax <= set.repRangeMin;
@@ -1069,6 +1110,66 @@ function SetRow({
               }
               className="h-9"
             />
+          </div>
+        ) : isStaticStretch ? (
+          <div className="col-span-2 space-y-1">
+            <Label htmlFor={`time-${set.id}`} className="text-xs font-medium text-muted-foreground">
+              Time (seconds)
+            </Label>
+            <Input
+              id={`time-${set.id}`}
+              type="number"
+              inputMode="numeric"
+              step="1"
+              min="1"
+              value={set.targetSeconds ?? ""}
+              onChange={(event) =>
+                onChange({ targetSeconds: positiveIntegerOrUndefined(event.target.value) })
+              }
+              className="h-9"
+            />
+          </div>
+        ) : isStaticStrength ? (
+          <div className="col-span-2 space-y-1">
+            <Label className="text-xs font-medium text-muted-foreground">
+              Time range (seconds)
+            </Label>
+            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+              <Input
+                type="number"
+                inputMode="numeric"
+                step="1"
+                min="1"
+                value={set.timeRangeMin ?? ""}
+                onChange={(event) =>
+                  onChange({ timeRangeMin: positiveIntegerOrUndefined(event.target.value) })
+                }
+                aria-label="Minimum seconds"
+                aria-invalid={timeRangeInvalid || undefined}
+                className="h-9 text-center"
+              />
+              <span className="text-muted-foreground" aria-hidden="true">
+                –
+              </span>
+              <Input
+                type="number"
+                inputMode="numeric"
+                step="1"
+                min="1"
+                value={set.timeRangeMax ?? ""}
+                onChange={(event) =>
+                  onChange({ timeRangeMax: positiveIntegerOrUndefined(event.target.value) })
+                }
+                aria-label="Maximum seconds"
+                aria-invalid={timeRangeInvalid || undefined}
+                className="h-9 text-center"
+              />
+            </div>
+            {timeRangeInvalid && (
+              <p role="alert" className="text-xs text-destructive">
+                Maximum seconds must be greater than minimum seconds.
+              </p>
+            )}
           </div>
         ) : (
           <div className="col-span-2 space-y-1">
