@@ -978,6 +978,21 @@ function GuidedMode({
     setInRest(false);
   };
 
+  const upcomingSupersets = (() => {
+    const upcoming: typeof flat = [];
+    let i = index + 1;
+    while (i < flat.length) {
+      const prev = flat[i - 1];
+      const curr = flat[i];
+      const prevRest = restSecondsFor(prev.set);
+      const isPrevSuperset = prev.set.setType === "superset" || prev.set.setType === "alternating" || prevRest === 0;
+      if (!isPrevSuperset) break;
+      upcoming.push(curr);
+      i++;
+    }
+    return upcoming;
+  })();
+
   return (
     <>
       <PreviewHeader
@@ -999,64 +1014,95 @@ function GuidedMode({
           onSkip={advance}
         />
       ) : (
-        <PerformPanel
-          ref_={currentRef}
-          def={definition}
-          suggestedWeightUnit={
-            weightUnitsById.get(currentRef.set.weightUnitId) ??
-            getWeightUnit([], currentRef.set.weightUnitId)
-          }
-          weightUnits={weightUnits}
-          result={currentResult}
-          onWeight={(value) =>
-            dispatch({
-              type: "set-result",
-              key,
-              patch: { actualWeight: clampNonNegative(value) },
-            })
-          }
-          onWeightUnit={(actualWeightUnitId) =>
-            dispatch({
-              type: "set-result",
-              key,
-              patch: { actualWeightUnitId },
-            })
-          }
-          onReps={(value) =>
-            dispatch({
-              type: "set-result",
-              key,
-              patch: { actualReps: clampNonNegative(value) },
-            })
-          }
-          onNotes={(notesToCoach) =>
-            dispatch({
-              type: "set-result",
-              key,
-              patch: { notesToCoach },
-            })
-          }
-          onCreateWeightUnit={onCreateWeightUnit}
-          onComplete={() => {
-            dispatch({ type: "mark-complete", key });
-            const nextIndex = findNextIncomplete(flat, results, index + 1);
-            if (nextIndex >= flat.length) {
-              onFinish();
-              return;
+        <div className="mx-auto flex w-full max-w-md flex-1 flex-col gap-4 p-4 overflow-y-auto overscroll-contain">
+          <PerformPanel
+            ref_={currentRef}
+            def={definition}
+            suggestedWeightUnit={
+              weightUnitsById.get(currentRef.set.weightUnitId) ??
+              getWeightUnit([], currentRef.set.weightUnitId)
             }
-            if (restSecondsFor(currentRef.set) > 0) setInRest(true);
-            else setIndex(nextIndex);
-          }}
-          onSkip={() => {
-            const nextIndex = findNextIncomplete(flat, results, index + 1);
-            if (nextIndex >= flat.length) {
-              onFinish();
-              return;
+            weightUnits={weightUnits}
+            result={currentResult}
+            onWeight={(value) =>
+              dispatch({
+                type: "set-result",
+                key,
+                patch: { actualWeight: clampNonNegative(value) },
+              })
             }
-            setIndex(nextIndex);
-            setInRest(false);
-          }}
-        />
+            onWeightUnit={(actualWeightUnitId) =>
+              dispatch({
+                type: "set-result",
+                key,
+                patch: { actualWeightUnitId },
+              })
+            }
+            onReps={(value) =>
+              dispatch({
+                type: "set-result",
+                key,
+                patch: { actualReps: clampNonNegative(value) },
+              })
+            }
+            onNotes={(notesToCoach) =>
+              dispatch({
+                type: "set-result",
+                key,
+                patch: { notesToCoach },
+              })
+            }
+            onCreateWeightUnit={onCreateWeightUnit}
+            onComplete={() => {
+              dispatch({ type: "mark-complete", key });
+              const nextIndex = findNextIncomplete(flat, results, index + 1);
+              if (nextIndex >= flat.length) {
+                onFinish();
+                return;
+              }
+              if (restSecondsFor(currentRef.set) > 0) setInRest(true);
+              else setIndex(nextIndex);
+            }}
+            onSkip={() => {
+              const nextIndex = findNextIncomplete(flat, results, index + 1);
+              if (nextIndex >= flat.length) {
+                onFinish();
+                return;
+              }
+              setIndex(nextIndex);
+              setInRest(false);
+            }}
+          />
+          {upcomingSupersets.length > 0 && (
+            <div className="space-y-3 border-t border-border pt-4">
+              <p className="text-[0.8125rem] font-medium uppercase tracking-wide text-muted-foreground">
+                Up next — supersets (no rest)
+              </p>
+              <div className="space-y-3">
+                {upcomingSupersets.map((upRef) => {
+                  const upDef = exercisesById.get(upRef.exercise.exerciseId);
+                  const upKey = resultKey(upRef.exerciseInstanceId, upRef.setId);
+                  const upResult = results[upKey];
+                  return (
+                    <div key={upKey} className="rounded-xl border border-border/60 bg-muted/20 p-4 opacity-90">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-[0.875rem] font-medium text-muted-foreground">
+                          {upDef ? upDef.name : "Unknown exercise"} · Set {upRef.setIndex + 1}
+                        </p>
+                        <span className="rounded-md bg-[#E50910]/15 px-2 py-0.5 text-[0.75rem] font-medium uppercase tracking-wide text-[#E50910]">
+                          Superset
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[0.875rem] leading-5 text-muted-foreground">
+                        {formatRepPrescription(upRef.set) || SET_TYPE_LABELS[upRef.set.setType]}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
       )}
     </>
   );
