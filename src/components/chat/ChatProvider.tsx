@@ -43,7 +43,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         !message ||
         !account ||
         pathname === "/onboarding" ||
-        message.senderAccountId === account.id
+        message.senderAccountId === account.id ||
+        (account.role !== "coach" && account.role !== "client")
       )
         return;
       void showIncomingToast({

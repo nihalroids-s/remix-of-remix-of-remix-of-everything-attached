@@ -1,6 +1,6 @@
 import { emitLocalEvent, LOCAL_ACCOUNTS_CHANGED_EVENT } from "./local-events";
 
-export type AccountRole = "coach" | "client";
+export type AccountRole = "coach" | "client" | "payment_manager";
 
 export type AppAccount = {
   id: string;
@@ -65,6 +65,12 @@ export async function createAccount(input: {
   if (input.role === "coach" && accounts.some((account) => account.role === "coach")) {
     throw new Error("A Coach account already exists on this device.");
   }
+  if (
+    input.role === "payment_manager" &&
+    accounts.some((account) => account.role === "payment_manager")
+  ) {
+    throw new Error("A Payment Manager account already exists on this device.");
+  }
 
   const account: AppAccount = {
     id: createId(),
@@ -72,8 +78,11 @@ export async function createAccount(input: {
     username,
     role: input.role,
     isPreview: false,
-    onboardingStep: input.role === "coach" ? 6 : 0,
-    onboardingCompletedAt: input.role === "coach" ? new Date().toISOString() : undefined,
+    onboardingStep: input.role === "coach" || input.role === "payment_manager" ? 6 : 0,
+    onboardingCompletedAt:
+      input.role === "coach" || input.role === "payment_manager"
+        ? new Date().toISOString()
+        : undefined,
     createdAt: new Date().toISOString(),
   };
   writeAccounts([...accounts, account]);
@@ -141,7 +150,9 @@ function isAccount(value: unknown): value is AppAccount {
     typeof account.id === "string" &&
     typeof account.name === "string" &&
     typeof account.username === "string" &&
-    (account.role === "coach" || account.role === "client") &&
+    (account.role === "coach" ||
+      account.role === "client" ||
+      account.role === "payment_manager") &&
     typeof account.createdAt === "string"
   );
 }
