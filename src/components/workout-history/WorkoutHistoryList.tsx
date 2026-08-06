@@ -1,12 +1,37 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Dumbbell } from "lucide-react";
+import {
+  CalendarDays,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  Dumbbell,
+  Pencil,
+  Save,
+  Trash2,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { formatElapsed } from "@/lib/coach-workout-preview";
 import { LOCAL_WORKOUT_HISTORY_CHANGED_EVENT } from "@/lib/local-events";
 import {
   type WorkoutHistorySession,
+  type WorkoutSessionData,
   type WorkoutSessionSetSnapshot,
+  deleteWorkoutSession,
   fetchWorkoutSessions,
+  updateWorkoutSession,
 } from "@/lib/workout-history";
 
 type ViewMode = "list" | "calendar";
@@ -304,49 +329,283 @@ export function WorkoutHistoryList({ clientId }: { clientId: string }) {
 }
 
 function WorkoutSessionDetails({ id, session }: { id: string; session: WorkoutHistorySession }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<WorkoutSessionData | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+
   const volume = formatVolume(session);
+
+  const startEditing = () => {
+    setDraft(JSON.parse(JSON.stringify(session.data)) as WorkoutSessionData);
+    setEditing(true);
+  };
+
+  const cancelEditing = () => {
+    setDraft(null);
+    setEditing(false);
+  };
+
+  const saveEdits = async () => {
+    if (!draft) return;
+    setSaving(true);
+    try {
+      updateWorkoutSession(session.clientId, session.id, { data: draft });
+      setDraft(null);
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const confirmDelete = () => {
+    deleteWorkoutSession(session.clientId, session.id);
+    setDeleteOpen(false);
+  };
+
   return (
     <div id={id} className="space-y-5 border-t border-border p-5">
-      <dl className="grid grid-cols-2 gap-2.5">
-        <HistoryStat label="Duration" value={formatElapsed(session.durationSeconds)} />
-        <HistoryStat label="Completed sets" value={`${session.completedSets}/${session.totalSets}`} />
-        <HistoryStat label="Total reps" value={`${session.totalReps}`} />
-        <HistoryStat label="Total volume" value={volume || "0"} />
-      </dl>
-
-      <div className="space-y-5">
-        {session.data.exercises.map((exercise, exerciseIndex) => (
-          <section key={exercise.exerciseInstanceId} className="space-y-2.5">
-            <div>
-              <h4 className="text-[1rem] font-semibold leading-5 text-foreground">
-                <span className="text-muted-foreground">{exerciseIndex + 1}.</span> {exercise.exerciseName}
-              </h4>
-              {exercise.coachNotes && <HistoryNote label="Notes from coach" value={exercise.coachNotes} />}
-            </div>
-            <ol className="space-y-2.5">
-              {exercise.sets.map((set) => (
-                <li key={set.setId} className="rounded-xl border border-border bg-background p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[1rem] font-medium leading-5 text-muted-foreground">Set {set.setNumber}</span>
-                    <span className={`rounded-md border px-2.5 py-1 text-[0.75rem] font-medium uppercase tracking-wide ${set.completed ? "border-primary/40 bg-primary/10 text-primary" : "border-border bg-muted text-muted-foreground"}`}>
-                      {set.completed ? "Completed" : "Not completed"}
-                    </span>
-                  </div>
-                  <p className="mt-2.5 text-[0.875rem] leading-5 text-muted-foreground">{formatPrescription(set)}</p>
-                  <dl className="mt-3.5 grid grid-cols-2 gap-2.5">
-                    <HistoryStat label="Weight done" value={`${formatNumber(set.weightDone)} ${set.weightDoneUnit.shortForm}`} compact />
-                    <HistoryStat label="Reps done" value={`${set.repsDone}`} compact />
-                  </dl>
-                  {set.coachNotes && <HistoryNote label="Notes from coach" value={set.coachNotes} />}
-                  {set.notesToCoach && <HistoryNote label="Notes to coach" value={set.notesToCoach} emphasized />}
-                </li>
-              ))}
-            </ol>
-          </section>
-        ))}
+      <div className="flex items-center justify-between gap-2">
+        <dl className="grid grid-cols-2 gap-2.5">
+          <HistoryStat label="Duration" value={formatElapsed(session.durationSeconds)} />
+          <HistoryStat label="Completed sets" value={`${session.completedSets}/${session.totalSets}`} />
+          <HistoryStat label="Total reps" value={`${session.totalReps}`} />
+          <HistoryStat label="Total volume" value={volume || "0"} />
+        </dl>
+        <div className="flex shrink-0 flex-col gap-2">
+          {editing ? (
+            <>
+              <Button
+                type="button"
+                variant="default"
+                className="min-h-11 rounded-xl text-[1rem]"
+                onClick={() => void saveEdits()}
+                disabled={saving}
+              >
+                <Save className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                Save changes
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-11 rounded-xl text-[1rem]"
+                onClick={cancelEditing}
+                disabled={saving}
+              >
+                <X className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                Cancel
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-11 rounded-xl text-[1rem]"
+                onClick={startEditing}
+              >
+                <Pencil className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                Edit workout
+              </Button>
+              <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+                <AlertDialogTrigger asChild>
+                  <Button type="button" variant="outline" className="min-h-11 rounded-xl text-[1rem] text-destructive hover:text-destructive">
+                    <Trash2 className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                    Delete workout
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete this workout?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will permanently remove “{session.workoutName}” from your workout
+                      history. This cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel className="min-h-11 rounded-xl text-[1rem]">Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      className="min-h-11 rounded-xl text-[1rem] bg-destructive text-white hover:bg-destructive/90"
+                      onClick={confirmDelete}
+                    >
+                      Delete
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </>
+          )}
+        </div>
       </div>
+
+      {editing && draft ? (
+        <div className="space-y-5">
+          {draft.exercises.map((exercise, exerciseIndex) => (
+            <section key={exercise.exerciseInstanceId} className="space-y-2.5">
+              <div>
+                <h4 className="text-[1rem] font-semibold leading-5 text-foreground">
+                  <span className="text-muted-foreground">{exerciseIndex + 1}.</span> {exercise.exerciseName}
+                </h4>
+                {exercise.coachNotes && <HistoryNote label="Notes from coach" value={exercise.coachNotes} />}
+              </div>
+              <ol className="space-y-2.5">
+                {exercise.sets.map((set, setIndex) => (
+                  <li
+                    key={set.setId}
+                    className="rounded-xl border border-border bg-background p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[1rem] font-medium leading-5 text-muted-foreground">
+                        Set {set.setNumber}
+                      </span>
+                      <span
+                        className={`rounded-md border px-2.5 py-1 text-[0.75rem] font-medium uppercase tracking-wide ${
+                          set.completed
+                            ? "border-primary/40 bg-primary/10 text-primary"
+                            : "border-border bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        {set.completed ? "Completed" : "Not completed"}
+                      </span>
+                    </div>
+                    <p className="mt-2.5 text-[0.875rem] leading-5 text-muted-foreground">
+                      {formatPrescription(set)}
+                    </p>
+                    <div className="mt-3.5 grid grid-cols-2 gap-2.5">
+                      <label className="rounded-lg bg-muted/40 p-3.5">
+                        <span className="text-[0.8125rem] font-medium uppercase tracking-wide text-muted-foreground">
+                          Weight done
+                        </span>
+                        <span className="mt-1 flex items-center gap-2">
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            min={0}
+                            step="any"
+                            value={Number.isFinite(set.weightDone) ? set.weightDone : 0}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              const parsed = value === "" ? 0 : Number(value);
+                              setDraft((current) => {
+                                if (!current) return current;
+                                const next = structuredCloneDeep(current);
+                                next.exercises[exerciseIndex].sets[setIndex] = {
+                                  ...set,
+                                  weightDone: Number.isFinite(parsed) ? parsed : 0,
+                                };
+                                return next;
+                              });
+                            }}
+                            className="w-full min-w-0 flex-1 rounded-md border border-border bg-background px-2.5 py-2 text-[1rem] leading-5 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            aria-label={`Weight done for set ${set.setNumber}`}
+                          />
+                          <span className="shrink-0 text-[0.875rem] text-muted-foreground">
+                            {set.weightDoneUnit.shortForm}
+                          </span>
+                        </span>
+                      </label>
+                      <div className="rounded-lg bg-muted/40 p-3.5">
+                        <span className="text-[0.8125rem] font-medium uppercase tracking-wide text-muted-foreground">
+                          {set.setType === "warmup" ? "Prescribed reps" : "Reps done"}
+                        </span>
+                        {set.setType === "warmup" ? (
+                          <p className="mt-1 text-[1rem] font-medium leading-5">
+                            {set.targetReps ?? set.repsDone}
+                          </p>
+                        ) : (
+                          <input
+                            type="number"
+                            inputMode="numeric"
+                            min={0}
+                            step={1}
+                            value={Number.isInteger(set.repsDone) ? set.repsDone : 0}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              const parsed = value === "" ? 0 : Number(value);
+                              setDraft((current) => {
+                                if (!current) return current;
+                                const next = structuredCloneDeep(current);
+                                next.exercises[exerciseIndex].sets[setIndex] = {
+                                  ...set,
+                                  repsDone: Number.isInteger(parsed) && parsed >= 0 ? parsed : 0,
+                                };
+                                return next;
+                              });
+                            }}
+                            className="mt-1 w-full rounded-md border border-border bg-background px-2.5 py-2 text-[1rem] leading-5 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            aria-label={`Reps done for set ${set.setNumber}`}
+                          />
+                        )}
+                      </div>
+                    </div>
+                    <div className="mt-2.5">
+                      <span className="text-[0.8125rem] font-medium uppercase tracking-wide text-muted-foreground">
+                        Notes to coach
+                      </span>
+                      <textarea
+                        value={set.notesToCoach ?? ""}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          setDraft((current) => {
+                            if (!current) return current;
+                            const next = structuredCloneDeep(current);
+                            next.exercises[exerciseIndex].sets[setIndex] = {
+                              ...set,
+                              notesToCoach: value === "" ? undefined : value,
+                            };
+                            return next;
+                          });
+                        }}
+                        rows={2}
+                        className="mt-1 w-full rounded-md border border-border bg-background px-2.5 py-2 text-[1rem] leading-5 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-label={`Notes to coach for set ${set.setNumber}`}
+                      />
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </section>
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-5">
+          {session.data.exercises.map((exercise, exerciseIndex) => (
+            <section key={exercise.exerciseInstanceId} className="space-y-2.5">
+              <div>
+                <h4 className="text-[1rem] font-semibold leading-5 text-foreground">
+                  <span className="text-muted-foreground">{exerciseIndex + 1}.</span> {exercise.exerciseName}
+                </h4>
+                {exercise.coachNotes && <HistoryNote label="Notes from coach" value={exercise.coachNotes} />}
+              </div>
+              <ol className="space-y-2.5">
+                {exercise.sets.map((set) => (
+                  <li key={set.setId} className="rounded-xl border border-border bg-background p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[1rem] font-medium leading-5 text-muted-foreground">Set {set.setNumber}</span>
+                      <span className={`rounded-md border px-2.5 py-1 text-[0.75rem] font-medium uppercase tracking-wide ${set.completed ? "border-primary/40 bg-primary/10 text-primary" : "border-border bg-muted text-muted-foreground"}`}>
+                        {set.completed ? "Completed" : "Not completed"}
+                      </span>
+                    </div>
+                    <p className="mt-2.5 text-[0.875rem] leading-5 text-muted-foreground">{formatPrescription(set)}</p>
+                    <dl className="mt-3.5 grid grid-cols-2 gap-2.5">
+                      <HistoryStat label="Weight done" value={`${formatNumber(set.weightDone)} ${set.weightDoneUnit.shortForm}`} compact />
+                      <HistoryStat label="Reps done" value={`${set.repsDone}`} compact />
+                    </dl>
+                    {set.coachNotes && <HistoryNote label="Notes from coach" value={set.coachNotes} />}
+                    {set.notesToCoach && <HistoryNote label="Notes to coach" value={set.notesToCoach} emphasized />}
+                  </li>
+                ))}
+              </ol>
+            </section>
+          ))}
+        </div>
+      )}
     </div>
   );
+}
+
+function structuredCloneDeep<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
 }
 
 function HistoryStat({
