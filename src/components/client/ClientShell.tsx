@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useAccount } from "@/components/account/AccountProvider";
 import { SettingsMenu } from "@/components/account/SettingsMenu";
 import { ChatButton } from "@/components/chat/ChatButton";
+import { finalizeExpiredPausedWorkouts } from "@/lib/paused-workouts";
 import { cn } from "@/lib/utils";
 
 type ClientNavItem = {
@@ -33,6 +34,12 @@ export function ClientShell() {
       void navigate({ to: "/access", replace: true });
     }
   }, [account, loading, navigate]);
+
+  useEffect(() => {
+    if (loading || account?.role !== "client" || !account.onboardingCompletedAt) return;
+    // Paused workouts from a previous day are finalized into history automatically.
+    void finalizeExpiredPausedWorkouts(account.id);
+  }, [account, loading]);
 
   useEffect(() => {
     if (loading || account?.role !== "client" || !account.onboardingCompletedAt) return;

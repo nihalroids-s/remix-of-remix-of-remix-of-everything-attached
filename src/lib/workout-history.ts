@@ -199,6 +199,60 @@ export async function fetchWorkoutSessions(clientId: string): Promise<WorkoutHis
     .sort((left, right) => right.completedAt.localeCompare(left.completedAt));
 }
 
+export type LastExerciseWeight = {
+  weight: number;
+  unitId: string;
+  unitShortForm: string;
+  at: string;
+};
+
+/**
+ * For every exercise, the weight the client did the LAST time that exercise
+ * was performed — computed from completed non-warm-up sets only.
+ * Sessions are expected newest-first; the first session that contains a
+ * qualifying set wins for each exercise.
+ */
+export function computeLastWeightsByExercise(
+  sessions: WorkoutHistorySession[],
+): Record<string, LastExerciseWeight> {
+  const map: Record<string, LastExerciseWeight> = {};
+  // Newest session wins per exercise, regardless of input order.
+  const ordered = [...sessions].sort((left, right) =>
+    right.completedAt.localeCompare(left.completedAt),
+  );
+  for (const session of ordered) {
+    for (const exercise of session.data.exercises) {
+      if (map[exercise.exerciseId]) continue;
+      let bestWeight = 0;
+      let bestUnitId = "";
+      let bestUnitShort = "";
+      for (const set of exercise.sets) {
+        if (!set.completed || set.setType === "warmup") continue;
+        if (set.weightDone > 0 && set.weightDone > bestWeight) {
+          bestWeight = set.weightDone;
+          bestUnitId = set.weightDoneUnit.id;
+          bestUnitShort = set.weightDoneUnit.shortForm;
+        }
+      }
+      if (bestWeight > 0) {
+        map[exercise.exerciseId] = {
+          weight: bestWeight,
+          unitId: bestUnitId,
+          unitShortForm: bestUnitShort,
+          at: session.completedAt,
+        };
+      }
+    }
+  }
+  return map;
+}
+
+export async function fetchLastWeightsByExercise(
+  clientId: string,
+): Promise<Record<string, LastExerciseWeight>> {
+  return computeLastWeightsByExercise(await fetchWorkoutSessions(clientId));
+}
+
 export function updateWorkoutSession(
   clientId: string,
   sessionId: string,
