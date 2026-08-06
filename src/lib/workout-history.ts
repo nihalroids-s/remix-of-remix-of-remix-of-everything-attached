@@ -23,12 +23,16 @@ export type WorkoutSessionSetSnapshot = {
   targetReps?: number;
   repRangeMin?: number;
   repRangeMax?: number;
+  timeRangeMin?: number;
+  timeRangeMax?: number;
+  targetSeconds?: number;
   restSeconds?: number;
   coachNotes?: string;
   completed: boolean;
   weightDone: number;
   weightDoneUnit: WorkoutSessionUnitSnapshot;
   repsDone: number;
+  secondsDone: number;
   notesToCoach?: string;
 };
 
@@ -120,12 +124,16 @@ export function buildWorkoutSessionData({
             targetReps: set.targetReps,
             repRangeMin: set.repRangeMin,
             repRangeMax: set.repRangeMax,
+            timeRangeMin: set.timeRangeMin,
+            timeRangeMax: set.timeRangeMax,
+            targetSeconds: set.targetSeconds,
             restSeconds: set.restSeconds,
             coachNotes: set.coachNotes,
             completed: result?.completed ?? false,
             weightDone: result?.actualWeight ?? 0,
             weightDoneUnit: unitSnapshot(doneUnit),
             repsDone: result?.actualReps ?? 0,
+            secondsDone: result?.actualSeconds ?? 0,
             notesToCoach: result?.notesToCoach,
           };
         }),
