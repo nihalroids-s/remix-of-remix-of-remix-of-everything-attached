@@ -1,18 +1,19 @@
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
-import { Receipt, type LucideIcon } from "lucide-react";
+import { Receipt, Send, type LucideIcon } from "lucide-react";
 import { useEffect } from "react";
 import { useAccount } from "@/components/account/AccountProvider";
 import { SettingsMenu } from "@/components/account/SettingsMenu";
 import { cn } from "@/lib/utils";
 
 type PaymentNavItem = {
-  to: "/payment/dashboard";
+  to: "/payment/dashboard" | "/payment/payouts";
   label: string;
   icon: LucideIcon;
 };
 
 const PAYMENT_NAV_ITEMS: PaymentNavItem[] = [
   { to: "/payment/dashboard", label: "Payments", icon: Receipt },
+  { to: "/payment/payouts", label: "Payouts", icon: Send },
 ];
 
 export function PaymentShell() {

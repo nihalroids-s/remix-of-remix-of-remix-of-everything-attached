@@ -69,11 +69,9 @@ A dedicated **Payment Mode** page in the web app where the **US Payment Manager*
 
 ## 7. Implementation batches (when we build it)
 
-- **P1:** Role + login for payment manager (single account, passwordless like local coach/client)
-- **P2:** Payments list with tags (New user / Membership) + $20-per-payment totals
-- **P3:** Payout submission (amount + screenshot upload) + Pending state
-- **P4:** Coach approval UI + balance subtraction + audit log
-- **P5 (future):** webhook auto-unlock, earnings history
+- **P1 ✅ (delivered 2026-08-06):** Role + login for payment manager (single account, passwordless like local coach/client) + Payments list with tags (New user / Membership) + $20-per-payment totals + auto-unlock client on payment record.
+- **P2 ✅ (delivered 2026-08-06):** Payout submission (amount + screenshot upload) + Pending state + Coach approval UI + balance subtraction + audit log. Payment Manager submits from `/payment/payouts`; Coach approves/rejects from Coach Dashboard → Payout approvals.
+- **P3 (future):** webhook auto-unlock (Stripe/PayPal IPN), earnings history for the Payment Manager.
 
 ## 8. Rules
 
