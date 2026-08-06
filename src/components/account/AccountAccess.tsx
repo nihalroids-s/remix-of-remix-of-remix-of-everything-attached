@@ -58,6 +58,7 @@ export function AccountAccess() {
   }, []);
 
   const coachExists = accounts.some((account) => account.role === "coach");
+  const paymentManagerExists = accounts.some((account) => account.role === "payment_manager");
   const existingUsernames = useMemo(() => accounts.map((a) => a.username.toLowerCase()), [accounts]);
 
   const nameError = nameTouched ? validateName(name) : null;
@@ -70,9 +71,11 @@ export function AccountAccess() {
       to:
         account.role === "coach"
           ? "/coach/dashboard"
-          : account.onboardingCompletedAt
-            ? "/client/dashboard"
-            : "/onboarding",
+          : account.role === "payment_manager"
+            ? "/payment/dashboard"
+            : account.onboardingCompletedAt
+              ? "/client/dashboard"
+              : "/onboarding",
     });
   };
 
@@ -222,7 +225,7 @@ export function AccountAccess() {
         <div className="text-left">
           <h2 className="text-[1.25rem] font-semibold leading-tight tracking-tight">Choose account type</h2>
           <p className="mt-1.5 text-[1rem] leading-6 text-muted-foreground">
-            This local prototype choice is permanent on this device. You can create one Coach and many Clients.
+            This local prototype choice is permanent on this device. You can create one Coach, one Payment Manager, and many Clients.
           </p>
         </div>
         <div className="grid gap-2.5">
@@ -251,6 +254,21 @@ export function AccountAccess() {
           {!coachExists && (
             <p className="px-1 text-[0.875rem] leading-5 text-muted-foreground">
               Create the local Coach first so Client onboarding and chat have a Coach.
+            </p>
+          )}
+          <Button
+            type="button"
+            variant="outline"
+            className="min-h-12 w-full justify-start rounded-xl px-4 py-3 text-[1rem] font-semibold"
+            disabled={submitting || !coachExists || paymentManagerExists}
+            onClick={() => void chooseRole("payment_manager")}
+          >
+            Payment Mode
+            <span className="ml-auto text-[1rem] font-normal text-muted-foreground">Track payments</span>
+          </Button>
+          {paymentManagerExists && (
+            <p className="px-1 text-[0.875rem] leading-5 text-muted-foreground">
+              A local Payment Manager already exists. You cannot create another.
             </p>
           )}
         </div>
@@ -287,7 +305,11 @@ export function AccountAccess() {
               <span className="block truncate text-[1rem] leading-5 text-muted-foreground">@{account.username}</span>
             </span>
             <Badge variant={account.role === "coach" ? "default" : "secondary"} className="rounded-md px-2.5 py-1 text-[0.75rem]">
-              {account.role === "coach" ? "Coach" : "Client"}
+              {account.role === "coach"
+                ? "Coach"
+                : account.role === "payment_manager"
+                  ? "Payment Manager"
+                  : "Client"}
             </Badge>
           </button>
         ))}

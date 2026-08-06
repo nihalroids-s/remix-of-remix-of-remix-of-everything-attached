@@ -1,0 +1,84 @@
+import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { DEV_SHARE_PER_PAYMENT_USD, formatUsd, paymentTotals } from "./payment-system";
+
+const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");
+
+describe("payment system totals", () => {
+  test("each payment counts as $20 owed to the developer", () => {
+    const payments = Array.from({ length: 5 }, (_, index) => ({
+      id: `p${index}`,
+      clientName: "Client",
+      clientUsername: "client",
+      amountUsd: 29,
+      tag: "new_user" as const,
+      recordedBy: "pm",
+      recordedAt: "2026-08-06T00:00:00.000Z",
+    }));
+    const totals = paymentTotals(payments, []);
+    expect(totals.count).toBe(5);
+    expect(totals.owedUsd).toBe(5 * DEV_SHARE_PER_PAYMENT_USD);
+    expect(totals.paidOutUsd).toBe(0);
+    expect(totals.remainingUsd).toBe(100);
+  });
+
+  test("approved payouts subtract from the remaining balance", () => {
+    const payments = Array.from({ length: 5 }, (_, index) => ({
+      id: `p${index}`,
+      clientName: "Client",
+      clientUsername: "client",
+      amountUsd: 29,
+      tag: "new_user" as const,
+      recordedBy: "pm",
+      recordedAt: "2026-08-06T00:00:00.000Z",
+    }));
+    const payouts = [
+      { id: "x1", amountUsd: 40, status: "approved" as const, submittedBy: "pm", submittedAt: "2026-08-06T01:00:00.000Z" },
+      { id: "x2", amountUsd: 10, status: "pending" as const, submittedBy: "pm", submittedAt: "2026-08-06T02:00:00.000Z" },
+      { id: "x3", amountUsd: 5, status: "rejected" as const, submittedBy: "pm", submittedAt: "2026-08-06T03:00:00.000Z" },
+    ];
+    const totals = paymentTotals(payments, payouts);
+    expect(totals.paidOutUsd).toBe(40);
+    expect(totals.remainingUsd).toBe(60);
+  });
+
+  test("USD formatting uses two decimals", () => {
+    expect(formatUsd(20)).toBe("$20.00");
+    expect(formatUsd(12.5)).toBe("$12.50");
+  });
+});
+
+describe("payment manager UI overhaul", () => {
+  test("Payment Dashboard uses reduced corners, large touch targets, and no emojis", () => {
+    const dashboard = read("../components/payment/PaymentDashboard.tsx");
+    expect(dashboard).toMatch(/rounded-xl/);
+    expect(dashboard).toMatch(/min-h-12 rounded-xl/);
+    expect(dashboard).toMatch(/text-\[1rem\]/);
+    expect(dashboard).not.toMatch(/\p{Extended_Pictographic}/u);
+  });
+
+  test("no colored gradients in payment UI", () => {
+    const dashboard = read("../components/payment/PaymentDashboard.tsx");
+    const grads = dashboard
+      .split(/\s+/)
+      .map((t) => t.replace(/^[^a-z]+|[^\w/\[\].%-]+$/g, ""))
+      .filter((t) => /^(?:from|via|to)-/.test(t));
+    expect(grads.filter((t) => !t.includes("black") && !t.startsWith("from-transparent"))).toEqual([]);
+  });
+
+  test("Payment Mode uses the app's shared account role", () => {
+    const accounts = read("../lib/cloud-accounts.ts");
+    expect(accounts).toMatch(/payment_manager/);
+    const access = read("../components/account/AccountAccess.tsx");
+    expect(access).toMatch(/Payment Mode/);
+    expect(access).toMatch(/Payment Manager/);
+  });
+
+  test("payment routes exist and no emojis", () => {
+    const paymentRoute = read("../routes/payment.tsx");
+    const dashboardRoute = read("../routes/payment.dashboard.tsx");
+    expect(paymentRoute).toMatch(/payment\/dashboard/);
+    expect(dashboardRoute).toMatch(/PaymentDashboard/);
+    expect(dashboardRoute).not.toMatch(/\p{Extended_Pictographic}/u);
+  });
+});

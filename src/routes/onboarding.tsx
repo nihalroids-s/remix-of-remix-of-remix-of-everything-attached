@@ -28,12 +28,20 @@ function OnboardingPage() {
       void navigate({ to: "/access", replace: true });
     } else if (account.role === "coach") {
       void navigate({ to: "/coach/dashboard", replace: true });
+    } else if (account.role === "payment_manager") {
+      void navigate({ to: "/payment/dashboard", replace: true });
     } else if (account.onboardingCompletedAt) {
       void enterClientApp();
     }
   }, [account, enterClientApp, loading, navigate]);
 
-  if (loading || !account || account.role === "coach" || account.onboardingCompletedAt) {
+  if (
+    loading ||
+    !account ||
+    account.role === "coach" ||
+    account.role === "payment_manager" ||
+    account.onboardingCompletedAt
+  ) {
     return <main className="min-h-[100dvh] bg-background" aria-label="Opening local account" />;
   }
 
