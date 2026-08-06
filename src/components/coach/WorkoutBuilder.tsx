@@ -738,6 +738,7 @@ function ExerciseCard({
   weightUnits,
   onCreateWeightUnit,
   onRemove,
+  onDuplicate,
   onChange,
 }: {
   instance: WorkoutExercisePrescription;
@@ -881,6 +882,7 @@ function SetRow({
   onCreateWeightUnit,
   onChange,
   onRemove,
+  onDuplicate,
 }: {
   index: number;
   set: WorkoutSetPrescription;

@@ -1,7 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "@tanstack/react-router";
-import { MessageCircle, Play } from "lucide-react";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { MessageCircle, Play, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { useAccount } from "@/components/account/AccountProvider";
 import { ProgressPicturesDashboardSection } from "@/components/client/progress-pictures/ProgressPicturesDashboardSection";
 import { useChat } from "@/components/chat/ChatProvider";
@@ -14,14 +25,19 @@ import {
 import { type ProgramWorkout, loadWorkouts } from "@/lib/coach-workouts";
 import { getClientGreeting } from "@/lib/client-greeting";
 import { useProgressPictureBatches } from "@/hooks/use-progress-picture-batches";
+import { LOCAL_WORKOUT_HISTORY_CHANGED_EVENT } from "@/lib/local-events";
+import { fetchWorkoutSessions } from "@/lib/workout-history";
 
 export function ClientDashboard() {
   const { account: client, refresh } = useAccount();
   const { summary: chatSummary } = useChat();
+  const navigate = useNavigate();
   const [programs, setPrograms] = useState<ProgramSummary[]>([]);
   const [workouts, setWorkouts] = useState<ProgramWorkout[]>([]);
   const [now, setNow] = useState(() => new Date());
   const [hydrated, setHydrated] = useState(false);
+  const [todayWorkoutIds, setTodayWorkoutIds] = useState<string[]>([]);
+  const [confirmStep, setConfirmStep] = useState<0 | 1 | 2>(0);
   const progressPictures = useProgressPictureBatches(
     client?.role === "client" ? client.id : undefined,
   );
@@ -45,6 +61,28 @@ export function ClientDashboard() {
     };
   }, [refresh]);
 
+  useEffect(() => {
+    if (!client || client.role !== "client") return;
+    const loadSessions = () => {
+      void fetchWorkoutSessions(client.id).then((sessions) => {
+        const todayKey = localDateKey(new Date());
+        setTodayWorkoutIds(
+          sessions
+            .filter((session) => localDateKey(new Date(session.completedAt)) === todayKey)
+            .map((session) => session.workoutId),
+        );
+      });
+    };
+    loadSessions();
+    const onChange = () => loadSessions();
+    window.addEventListener(LOCAL_WORKOUT_HISTORY_CHANGED_EVENT, onChange);
+    window.addEventListener("storage", onChange);
+    return () => {
+      window.removeEventListener(LOCAL_WORKOUT_HISTORY_CHANGED_EVENT, onChange);
+      window.removeEventListener("storage", onChange);
+    };
+  }, [client]);
+
   const assignedProgram = useMemo(
     () => programs.find((program) => program.id === client?.assignedProgramId),
     [client?.assignedProgramId, programs],
@@ -55,6 +93,17 @@ export function ClientDashboard() {
     if (!assignedProgram || assignment?.type !== "workout") return undefined;
     return workouts.find((workout) => workout.id === assignment.workoutId);
   }, [assignedProgram, assignment, workouts]);
+
+  const todayWorkoutAlreadyDone =
+    todayWorkout !== undefined && todayWorkoutIds.includes(todayWorkout.id);
+
+  const reattemptWorkout = () => {
+    if (!assignedProgram || !todayWorkout) return;
+    void navigate({
+      to: "/client/programs/$programId/workouts/$workoutId",
+      params: { programId: assignedProgram.id, workoutId: todayWorkout.id },
+    });
+  };
 
   if (!hydrated || !client || client.role !== "client") return null;
 
@@ -126,6 +175,87 @@ export function ClientDashboard() {
         )}
       </section>
 
+      {todayWorkout && todayWorkoutAlreadyDone && (
+        <section
+          aria-labelledby="workout-complete-heading"
+          className="rounded-xl border border-primary/40 bg-primary/5 p-5"
+        >
+          <h2
+            id="workout-complete-heading"
+            className="text-[1.125rem] font-semibold leading-tight tracking-tight text-foreground"
+          >
+            Workout complete!
+          </h2>
+          <p className="mt-1.5 text-[1rem] leading-6 text-muted-foreground">
+            You finished {todayWorkout.name} today. Want to run it back?
+          </p>
+          <AlertDialog
+            open={confirmStep > 0}
+            onOpenChange={(open) => {
+              if (!open) setConfirmStep(0);
+            }}
+          >
+            <AlertDialogTrigger asChild>
+              <Button className="mt-4 min-h-12 w-full justify-center rounded-xl text-[1rem] font-semibold sm:w-auto">
+                <RotateCcw className="h-5 w-5" aria-hidden="true" />
+                Do this workout again
+              </Button>
+            </AlertDialogTrigger>
+            {confirmStep === 1 && (
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    You already completed {todayWorkout.name} today. Starting again will begin a
+                    fresh session.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel className="min-h-11 rounded-xl text-[1rem]">
+                    Not now
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    className="min-h-11 rounded-xl text-[1rem]"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      setConfirmStep(2);
+                    }}
+                  >
+                    Yes, redo it
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            )}
+            {confirmStep === 2 && (
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Are you really sure?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    You already did this workout. Finishing it again will add a second entry to
+                    your workout history.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel className="min-h-11 rounded-xl text-[1rem]">
+                    Go back
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    className="min-h-11 rounded-xl text-[1rem]"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      setConfirmStep(0);
+                      reattemptWorkout();
+                    }}
+                  >
+                    Yes, do it again
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            )}
+          </AlertDialog>
+        </section>
+      )}
+
       <ProgressPicturesDashboardSection
         clientId={client.id}
         batches={progressPictures.batches}
@@ -136,6 +266,13 @@ export function ClientDashboard() {
       />
     </div>
   );
+}
+
+function localDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function TodayState({

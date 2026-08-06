@@ -191,6 +191,77 @@ export async function fetchWorkoutSessions(clientId: string): Promise<WorkoutHis
     .sort((left, right) => right.completedAt.localeCompare(left.completedAt));
 }
 
+export function updateWorkoutSession(
+  clientId: string,
+  sessionId: string,
+  patch: {
+    data?: WorkoutSessionData;
+    durationSeconds?: number;
+    completedAt?: string;
+  },
+): WorkoutHistorySession | undefined {
+  const sessions = readSessions();
+  const index = sessions.findIndex(
+    (candidate) => candidate.id === sessionId && candidate.clientId === clientId,
+  );
+  if (index === -1) return undefined;
+  const current = sessions[index];
+  const data = patch.data ?? current.data;
+  const summary = computeSnapshotSummary(data);
+  const updated: WorkoutHistorySession = {
+    ...current,
+    data,
+    durationSeconds: patch.durationSeconds ?? current.durationSeconds,
+    completedAt: patch.completedAt ?? current.completedAt,
+    completedSets: summary.completedSets,
+    totalSets: summary.totalSets,
+    totalReps: summary.totalReps,
+    volumeByUnitId: summary.volumeByUnitId,
+  };
+  sessions[index] = updated;
+  window.localStorage.setItem(WORKOUT_HISTORY_STORAGE_KEY, JSON.stringify(sessions));
+  emitLocalEvent(LOCAL_WORKOUT_HISTORY_CHANGED_EVENT);
+  return updated;
+}
+
+export function deleteWorkoutSession(clientId: string, sessionId: string): boolean {
+  const sessions = readSessions();
+  const next = sessions.filter(
+    (candidate) => !(candidate.id === sessionId && candidate.clientId === clientId),
+  );
+  if (next.length === sessions.length) return false;
+  window.localStorage.setItem(WORKOUT_HISTORY_STORAGE_KEY, JSON.stringify(next));
+  emitLocalEvent(LOCAL_WORKOUT_HISTORY_CHANGED_EVENT);
+  return true;
+}
+
+function computeSnapshotSummary(data: WorkoutSessionData): {
+  completedSets: number;
+  totalSets: number;
+  totalReps: number;
+  volumeByUnitId: Record<string, number>;
+} {
+  let completedSets = 0;
+  let totalSets = 0;
+  let totalReps = 0;
+  const volumeByUnitId: Record<string, number> = {};
+  for (const exercise of data.exercises) {
+    for (const set of exercise.sets) {
+      totalSets += 1;
+      if (set.completed) {
+        completedSets += 1;
+        totalReps += set.repsDone || 0;
+        const weight = set.weightDone || 0;
+        const unitId = set.weightDoneUnit?.id;
+        if (unitId && weight > 0) {
+          volumeByUnitId[unitId] = (volumeByUnitId[unitId] ?? 0) + weight * (set.repsDone || 0);
+        }
+      }
+    }
+  }
+  return { completedSets, totalSets, totalReps, volumeByUnitId };
+}
+
 const WORKOUT_HISTORY_STORAGE_KEY = "no-more-copium:workout-history:v2";
 
 function readSessions(): WorkoutHistorySession[] {
