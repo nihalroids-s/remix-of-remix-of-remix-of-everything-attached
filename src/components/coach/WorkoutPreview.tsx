@@ -62,7 +62,18 @@ import {
   resultKey,
 } from "@/lib/coach-workout-preview";
 import { cn } from "@/lib/utils";
-import { createWorkoutSessionId, saveWorkoutSession } from "@/lib/workout-history";
+import {
+  createWorkoutSessionId,
+  type LastExerciseWeight,
+  fetchLastWeightsByExercise,
+  saveWorkoutSession,
+} from "@/lib/workout-history";
+import {
+  clearPausedWorkout,
+  fetchPausedWorkout,
+  hasWorkingProgressInResults,
+  savePausedWorkout,
+} from "@/lib/paused-workouts";
 import { WeightUnitSelector } from "./WeightUnitSelector";
 
 type Mode = "chooser" | "classic" | "guided" | "summary";
@@ -236,6 +247,9 @@ function PreviewSession({
   const [selectingGuidedSet, setSelectingGuidedSet] = useState(false);
   const [selectedGuidedSetKey, setSelectedGuidedSetKey] = useState<string | null>(null);
   const [exitOpen, setExitOpen] = useState(false);
+  const [pauseOpen, setPauseOpen] = useState(false);
+  const [resumedNotice, setResumedNotice] = useState(false);
+  const [lastWeights, setLastWeights] = useState<Record<string, LastExerciseWeight>>({});
   const [historySaveStatus, setHistorySaveStatus] = useState<"idle" | "saving" | "saved" | "error">(
     "idle",
   );
@@ -261,6 +275,39 @@ function PreviewSession({
     return () => window.clearInterval(id);
   }, [running]);
 
+  // Last-time weights from history (client only, non-warm-up sets)
+  useEffect(() => {
+    if (audience !== "client" || !clientId) return;
+    let cancelled = false;
+    void fetchLastWeightsByExercise(clientId).then((weights) => {
+      if (!cancelled) setLastWeights(weights);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [audience, clientId]);
+
+  // Resume a paused session of this same workout (client only)
+  useEffect(() => {
+    if (audience !== "client" || !clientId) return;
+    let cancelled = false;
+    void fetchPausedWorkout(clientId, workout.id).then((paused) => {
+      if (cancelled || !paused) return;
+      const hasCompleted = Object.values(paused.results).some((result) => result.completed);
+      if (!hasCompleted) return;
+      dispatch({ type: "reset", results: paused.results });
+      setElapsed(paused.elapsedSeconds);
+      const nextIndex = findNextIncomplete(flat, paused.results, 0);
+      setGuidedIndex(nextIndex >= flat.length ? 0 : nextIndex);
+      setResumedNotice(true);
+      void clearPausedWorkout(clientId, workout.id);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audience, clientId, workout.id, flat]);
+
   const dirty = hasAnyProgress(workout, results);
 
   const requestExit = useCallback(() => {
@@ -270,6 +317,36 @@ function PreviewSession({
     }
     setExitOpen(true);
   }, [dirty, onExit]);
+
+  const requestPause = useCallback(() => {
+    if (audience !== "client") return;
+    if (!dirty) {
+      onExit();
+      return;
+    }
+    setPauseOpen(true);
+  }, [audience, dirty, onExit]);
+
+  const confirmPause = async () => {
+    if (audience !== "client" || !clientId) return;
+    setPauseOpen(false);
+    try {
+      await savePausedWorkout({
+        id: createWorkoutSessionId(),
+        clientId,
+        programId,
+        workoutId: workout.id,
+        workoutName: workout.name,
+        pausedAt: new Date().toISOString(),
+        elapsedSeconds: elapsed,
+        results,
+        hasWorkingProgress: hasWorkingProgressInResults(workout, results),
+      });
+    } catch (error) {
+      console.error("Failed to pause workout", error);
+    }
+    onExit();
+  };
 
   const startMode = (next: "classic" | "guided") => {
     setRunning(true);
@@ -372,6 +449,16 @@ function PreviewSession({
 
   return (
     <FullscreenSurface>
+      {resumedNotice && (
+        <div className="mx-auto w-full max-w-md px-4 pt-4">
+          <div
+            className="rounded-xl border border-primary/40 bg-primary/10 px-4 py-3 text-[1rem] leading-5 text-primary"
+            role="status"
+          >
+            Resumed your paused workout — your completed sets are restored.
+          </div>
+        </div>
+      )}
       {mode === "chooser" && (
         <ModeChooser
           workoutName={workout.name}
@@ -391,6 +478,7 @@ function PreviewSession({
           dispatch={dispatch}
           audience={audience}
           elapsed={elapsed}
+          lastWeights={lastWeights}
           selectingGuidedSet={selectingGuidedSet}
           selectedGuidedSetKey={selectedGuidedSetKey}
           onSelectGuidedSet={setSelectedGuidedSetKey}
@@ -400,6 +488,7 @@ function PreviewSession({
           onCreateWeightUnit={onCreateWeightUnit}
           onFinish={openSummary}
           onExit={requestExit}
+          onPause={requestPause}
         />
       )}
       {mode === "guided" && (
@@ -412,12 +501,15 @@ function PreviewSession({
           results={results}
           dispatch={dispatch}
           elapsed={elapsed}
+          lastWeights={lastWeights}
+          audience={audience}
           index={guidedIndex}
           setIndex={setGuidedIndex}
           inRest={inRest}
           setInRest={setInRest}
           onCreateWeightUnit={onCreateWeightUnit}
           onSwitchClassic={switchToClassic}
+          onPause={requestPause}
           onFinish={openSummary}
           onExit={requestExit}
         />
@@ -459,6 +551,25 @@ function PreviewSession({
             >
               Exit
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={pauseOpen} onOpenChange={setPauseOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Pause workout?</DialogTitle>
+            <DialogDescription>
+              Your completed sets will be saved where you left off. If you don&apos;t resume
+              today, this workout will be logged to your history tomorrow with only the sets you
+              completed.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPauseOpen(false)}>
+              Keep training
+            </Button>
+            <Button onClick={() => void confirmPause()}>Pause workout</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -602,6 +713,7 @@ function ClassicMode({
   dispatch,
   audience,
   elapsed,
+  lastWeights,
   selectingGuidedSet,
   selectedGuidedSetKey,
   onSelectGuidedSet,
@@ -611,6 +723,7 @@ function ClassicMode({
   onCreateWeightUnit,
   onFinish,
   onExit,
+  onPause,
 }: {
   workout: ProgramWorkout;
   exercisesById: Map<string, Exercise>;
@@ -620,6 +733,7 @@ function ClassicMode({
   dispatch: React.Dispatch<Action>;
   audience: "coach" | "client";
   elapsed: number;
+  lastWeights: Record<string, LastExerciseWeight>;
   selectingGuidedSet: boolean;
   selectedGuidedSetKey: string | null;
   onSelectGuidedSet: (key: string) => void;
@@ -629,6 +743,7 @@ function ClassicMode({
   onCreateWeightUnit: (unit: WeightUnit) => void;
   onFinish: () => void;
   onExit: () => void;
+  onPause: () => void;
 }) {
   return (
     <>
@@ -637,14 +752,27 @@ function ClassicMode({
         subtitle={audience === "client" ? "Classic workout" : "Classic preview"}
         elapsed={elapsed}
         right={
-          <Button
-            variant="outline"
-            onClick={onSwitchGuided}
-            disabled={selectingGuidedSet}
-            className="min-h-10 rounded-lg text-[1rem]"
-          >
-            Guided
-          </Button>
+          <>
+            {audience === "client" && (
+              <Button
+                variant="outline"
+                onClick={onPause}
+                disabled={selectingGuidedSet}
+                className="min-h-10 rounded-lg text-[1rem]"
+              >
+                <Pause className="h-4 w-4" aria-hidden="true" />
+                Pause
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              onClick={onSwitchGuided}
+              disabled={selectingGuidedSet}
+              className="min-h-10 rounded-lg text-[1rem]"
+            >
+              Guided
+            </Button>
+          </>
         }
         onExit={onExit}
       />
@@ -692,6 +820,7 @@ function ClassicMode({
                         }
                         weightUnits={weightUnits}
                         result={result}
+                        lastWeight={lastWeights[ex.exerciseId]}
                         selecting={selectingGuidedSet}
                         selected={selectedGuidedSetKey === key}
                         onSelect={() => onSelectGuidedSet(key)}
@@ -767,6 +896,7 @@ function ClassicSetRow({
   suggestedWeightUnit,
   weightUnits,
   result,
+  lastWeight,
   selecting,
   selected,
   onSelect,
@@ -783,6 +913,7 @@ function ClassicSetRow({
   suggestedWeightUnit: WeightUnit;
   weightUnits: WeightUnit[];
   result: PreviewSetResult;
+  lastWeight?: LastExerciseWeight;
   selecting: boolean;
   selected: boolean;
   onSelect: () => void;
@@ -884,6 +1015,11 @@ function ClassicSetRow({
           >
             Weight done
           </Label>
+          {lastWeight && (
+            <p className="text-[0.8125rem] leading-5 text-muted-foreground">
+              Last time: {formatWeightNumber(lastWeight.weight)} {lastWeight.unitShortForm}
+            </p>
+          )}
           <WeightDoneInput
             id={`w-${result.setId}`}
             value={result.actualWeight}
@@ -959,12 +1095,15 @@ function GuidedMode({
   results,
   dispatch,
   elapsed,
+  lastWeights,
+  audience,
   index,
   setIndex,
   inRest,
   setInRest,
   onCreateWeightUnit,
   onSwitchClassic,
+  onPause,
   onFinish,
   onExit,
 }: {
@@ -976,12 +1115,15 @@ function GuidedMode({
   results: SessionResultsMap;
   dispatch: React.Dispatch<Action>;
   elapsed: number;
+  lastWeights: Record<string, LastExerciseWeight>;
+  audience: "coach" | "client";
   index: number;
   setIndex: (index: number) => void;
   inRest: boolean;
   setInRest: (inRest: boolean) => void;
   onCreateWeightUnit: (unit: WeightUnit) => void;
   onSwitchClassic: () => void;
+  onPause: () => void;
   onFinish: () => void;
   onExit: () => void;
 }) {
@@ -1029,9 +1171,21 @@ function GuidedMode({
         subtitle={`Set ${index + 1} of ${flat.length}`}
         elapsed={elapsed}
         right={
-          <Button variant="outline" onClick={onSwitchClassic} className="min-h-10 rounded-lg text-[1rem]">
-            Classic
-          </Button>
+          <>
+            {audience === "client" && (
+              <Button
+                variant="outline"
+                onClick={onPause}
+                className="min-h-10 rounded-lg text-[1rem]"
+              >
+                <Pause className="h-4 w-4" aria-hidden="true" />
+                Pause
+              </Button>
+            )}
+            <Button variant="outline" onClick={onSwitchClassic} className="min-h-10 rounded-lg text-[1rem]">
+              Classic
+            </Button>
+          </>
         }
         onExit={onExit}
       />
@@ -1053,6 +1207,7 @@ function GuidedMode({
             }
             weightUnits={weightUnits}
             result={currentResult}
+            lastWeight={lastWeights[currentRef.exercise.exerciseId]}
             onWeight={(value) =>
               dispatch({
                 type: "set-result",
@@ -1152,6 +1307,10 @@ function GuidedMode({
   );
 }
 
+function formatWeightNumber(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
 function findNextIncomplete(flat: FlatSetRef[], results: SessionResultsMap, from: number): number {
   for (let i = from; i < flat.length; i += 1) {
     const r = results[resultKey(flat[i].exerciseInstanceId, flat[i].setId)];
@@ -1179,6 +1338,7 @@ function PerformPanel({
   suggestedWeightUnit,
   weightUnits,
   result,
+  lastWeight,
   onWeight,
   onWeightUnit,
   onReps,
@@ -1194,6 +1354,7 @@ function PerformPanel({
   suggestedWeightUnit: WeightUnit;
   weightUnits: WeightUnit[];
   result: PreviewSetResult | undefined;
+  lastWeight?: LastExerciseWeight;
   onWeight: (number: number) => void;
   onWeightUnit: (unitId: string) => void;
   onReps: (number: number) => void;
@@ -1266,6 +1427,11 @@ function PerformPanel({
           <Label htmlFor={`guided-weight-${set.id}`} className="text-[1rem] font-medium leading-5 text-muted-foreground">
             Weight done
           </Label>
+          {lastWeight && (
+            <p className="text-[0.8125rem] leading-5 text-muted-foreground">
+              Last time: {formatWeightNumber(lastWeight.weight)} {lastWeight.unitShortForm}
+            </p>
+          )}
           <WeightDoneInput
             id={`guided-weight-${set.id}`}
             value={result.actualWeight}
