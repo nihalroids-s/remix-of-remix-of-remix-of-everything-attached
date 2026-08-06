@@ -15,6 +15,7 @@ import { Route as CoachRouteImport } from './routes/coach'
 import { Route as ClientRouteImport } from './routes/client'
 import { Route as AccessRouteImport } from './routes/access'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as PaymentPayoutsRouteImport } from './routes/payment.payouts'
 import { Route as PaymentDashboardRouteImport } from './routes/payment.dashboard'
 import { Route as CoachProgramsRouteImport } from './routes/coach.programs'
 import { Route as CoachLibraryRouteImport } from './routes/coach.library'
@@ -77,6 +78,11 @@ const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const PaymentPayoutsRoute = PaymentPayoutsRouteImport.update({
+  id: '/payouts',
+  path: '/payouts',
+  getParentRoute: () => PaymentRoute,
 } as any)
 const PaymentDashboardRoute = PaymentDashboardRouteImport.update({
   id: '/dashboard',
@@ -269,6 +275,7 @@ export interface FileRoutesByFullPath {
   '/coach/library': typeof CoachLibraryRouteWithChildren
   '/coach/programs': typeof CoachProgramsRouteWithChildren
   '/payment/dashboard': typeof PaymentDashboardRoute
+  '/payment/payouts': typeof PaymentPayoutsRoute
   '/client/progress-pictures/$batchId': typeof ClientProgressPicturesBatchIdRoute
   '/coach/chat/$clientId': typeof CoachChatClientIdRoute
   '/coach/clients/$clientId': typeof CoachClientsClientIdRoute
@@ -304,6 +311,7 @@ export interface FileRoutesByTo {
   '/coach/dashboard': typeof CoachDashboardRoute
   '/coach/exercises': typeof CoachExercisesRoute
   '/payment/dashboard': typeof PaymentDashboardRoute
+  '/payment/payouts': typeof PaymentPayoutsRoute
   '/client/progress-pictures/$batchId': typeof ClientProgressPicturesBatchIdRoute
   '/coach/chat/$clientId': typeof CoachChatClientIdRoute
   '/coach/clients/$clientId': typeof CoachClientsClientIdRoute
@@ -341,6 +349,7 @@ export interface FileRoutesById {
   '/coach/library': typeof CoachLibraryRouteWithChildren
   '/coach/programs': typeof CoachProgramsRouteWithChildren
   '/payment/dashboard': typeof PaymentDashboardRoute
+  '/payment/payouts': typeof PaymentPayoutsRoute
   '/client/progress-pictures/$batchId': typeof ClientProgressPicturesBatchIdRoute
   '/coach/chat/$clientId': typeof CoachChatClientIdRoute
   '/coach/clients/$clientId': typeof CoachClientsClientIdRoute
@@ -383,6 +392,7 @@ export interface FileRouteTypes {
     | '/coach/library'
     | '/coach/programs'
     | '/payment/dashboard'
+    | '/payment/payouts'
     | '/client/progress-pictures/$batchId'
     | '/coach/chat/$clientId'
     | '/coach/clients/$clientId'
@@ -418,6 +428,7 @@ export interface FileRouteTypes {
     | '/coach/dashboard'
     | '/coach/exercises'
     | '/payment/dashboard'
+    | '/payment/payouts'
     | '/client/progress-pictures/$batchId'
     | '/coach/chat/$clientId'
     | '/coach/clients/$clientId'
@@ -454,6 +465,7 @@ export interface FileRouteTypes {
     | '/coach/library'
     | '/coach/programs'
     | '/payment/dashboard'
+    | '/payment/payouts'
     | '/client/progress-pictures/$batchId'
     | '/coach/chat/$clientId'
     | '/coach/clients/$clientId'
@@ -529,6 +541,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/payment/payouts': {
+      id: '/payment/payouts'
+      path: '/payouts'
+      fullPath: '/payment/payouts'
+      preLoaderRoute: typeof PaymentPayoutsRouteImport
+      parentRoute: typeof PaymentRoute
     }
     '/payment/dashboard': {
       id: '/payment/dashboard'
@@ -942,10 +961,12 @@ const CoachRouteWithChildren = CoachRoute._addFileChildren(CoachRouteChildren)
 
 interface PaymentRouteChildren {
   PaymentDashboardRoute: typeof PaymentDashboardRoute
+  PaymentPayoutsRoute: typeof PaymentPayoutsRoute
 }
 
 const PaymentRouteChildren: PaymentRouteChildren = {
   PaymentDashboardRoute: PaymentDashboardRoute,
+  PaymentPayoutsRoute: PaymentPayoutsRoute,
 }
 
 const PaymentRouteWithChildren =

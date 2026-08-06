@@ -77,8 +77,38 @@ describe("payment manager UI overhaul", () => {
   test("payment routes exist and no emojis", () => {
     const paymentRoute = read("../routes/payment.tsx");
     const dashboardRoute = read("../routes/payment.dashboard.tsx");
+    const payoutsRoute = read("../routes/payment.payouts.tsx");
     expect(paymentRoute).toMatch(/payment\/dashboard/);
     expect(dashboardRoute).toMatch(/PaymentDashboard/);
+    expect(payoutsRoute).toMatch(/PayoutsPage/);
     expect(dashboardRoute).not.toMatch(/\p{Extended_Pictographic}/u);
+    expect(payoutsRoute).not.toMatch(/\p{Extended_Pictographic}/u);
+  });
+
+  test("payout flow exists on both sides without emojis or colored gradients", () => {
+    const payoutsPage = read("../components/payment/PayoutsPage.tsx");
+    expect(payoutsPage).toMatch(/Submit payout/);
+    expect(payoutsPage).toMatch(/Make a payout/);
+    expect(payoutsPage).toMatch(/min-h-12 rounded-xl/);
+    expect(payoutsPage).not.toMatch(/\p{Extended_Pictographic}/u);
+
+    const coachSection = read("../components/coach/PayoutApprovalsSection.tsx");
+    expect(coachSection).toMatch(/Payout approvals/);
+    expect(coachSection).toMatch(/Approve/);
+    expect(coachSection).toMatch(/Reject/);
+    expect(coachSection).not.toMatch(/\p{Extended_Pictographic}/u);
+
+    const all = `${payoutsPage}\n${coachSection}`;
+    const grads = all
+      .split(/\s+/)
+      .map((t) => t.replace(/^[^a-z]+|[^\w/\[\].%-]+$/g, ""))
+      .filter((t) => /^(?:from|via|to)-/.test(t));
+    expect(grads.filter((t) => !t.includes("black") && !t.startsWith("from-transparent"))).toEqual([]);
+  });
+
+  test("nav includes Payouts destination", () => {
+    const shell = read("../components/payment/PaymentShell.tsx");
+    expect(shell).toMatch(/\/payment\/payouts/);
+    expect(shell).toMatch(/label: "Payouts"/);
   });
 });
