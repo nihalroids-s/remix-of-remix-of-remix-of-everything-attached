@@ -1,10 +1,17 @@
 import { appendLocalChatMessages, ensureChatThread, fetchCoachAccount } from "./chat";
 import { fetchAccount, updateLocalAccount } from "./cloud-accounts";
-import { encodeFinalSequenceMessage, loadFinalSequence } from "./final-sequence";
 
-export const ONBOARDING_FINAL_MESSAGE = "placeholder\nplaceholder";
+export const ONBOARDING_FINAL_MESSAGE =
+  "Just complete the payment and you'll get instant access to your personalized training program. I can't wait to talk to you and personalize it even more.";
 
-export type ClientOnboardingStep = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+/** Marker body for the payment-box message rendered inside the chat. */
+export const ONBOARDING_PAYMENT_BOX_BODY = "\u0000NMC_PAYMENT_BOX\u0000";
+
+export const PAYMENT_DONE_PROMPT = "Are you done with the payment?";
+
+export const PAYMENT_VERIFY_MESSAGE = "Please wait for me to verify your payment.";
+
+export type ClientOnboardingStep = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
 export type ClientOnboardingState = {
   threadId: string;
@@ -17,7 +24,10 @@ export type ClientOnboardingQuestion = {
   options: readonly string[];
 };
 
-export const CLIENT_ONBOARDING_QUESTIONS: Record<1 | 2 | 3 | 4 | 5, ClientOnboardingQuestion> = {
+export const CLIENT_ONBOARDING_QUESTIONS: Record<
+  1 | 2 | 3 | 4 | 5 | 6,
+  ClientOnboardingQuestion
+> = {
   1: {
     prompt: "How many times a week do you usually train?",
     options: ["0–2 times a week", "3–4 times a week", "5–6 times a week"],
@@ -37,6 +47,10 @@ export const CLIENT_ONBOARDING_QUESTIONS: Record<1 | 2 | 3 | 4 | 5, ClientOnboar
   5: {
     prompt: "Are you ready for the unfair advantage?",
     options: ["Hell yeah"],
+  },
+  6: {
+    prompt: PAYMENT_DONE_PROMPT,
+    options: ["Yes"],
   },
 };
 
@@ -104,8 +118,8 @@ export async function answerClientOnboarding(
   const coach = await requireCoach();
   const step = normalizeStep(client.onboardingStep);
   if (client.onboardingCompletedAt) throw new Error("Onboarding is already complete.");
-  if (step < 1 || step > 5) throw new Error("This onboarding answer is not expected.");
-  const question = CLIENT_ONBOARDING_QUESTIONS[step as 1 | 2 | 3 | 4 | 5];
+  if (step < 1 || step > 6) throw new Error("This onboarding answer is not expected.");
+  const question = CLIENT_ONBOARDING_QUESTIONS[step as 1 | 2 | 3 | 4 | 5 | 6];
   if (!question.options.includes(answer)) throw new Error("Choose one of the available options.");
 
   const threadId = await ensureChatThread(clientId);
@@ -158,20 +172,38 @@ export async function answerClientOnboarding(
         ),
       );
     }
-  } else {
-    const sequence = loadFinalSequence();
-    sequence.messages.forEach((message, index) => {
-      messages.push(
-        coachMessage(
-          clientId,
-          `final-sequence:${sequence.version}:${index}`,
-          threadId,
-          coach.id,
-          encodeFinalSequenceMessage(message),
-          now + index + 1,
-        ),
-      );
-    });
+  } else if (step === 5) {
+    // "Hell yeah" → fixed final message + payment box (not coach-editable anymore).
+    messages.push(
+      coachMessage(
+        clientId,
+        "final-message",
+        threadId,
+        coach.id,
+        ONBOARDING_FINAL_MESSAGE,
+        now + messages.length,
+      ),
+      coachMessage(
+        clientId,
+        "payment-box",
+        threadId,
+        coach.id,
+        ONBOARDING_PAYMENT_BOX_BODY,
+        now + messages.length + 1,
+      ),
+    );
+  } else if (step === 6) {
+    // "Yes" → verification wait message.
+    messages.push(
+      coachMessage(
+        clientId,
+        "payment-verify",
+        threadId,
+        coach.id,
+        PAYMENT_VERIFY_MESSAGE,
+        now + messages.length,
+      ),
+    );
   }
 
   await appendLocalChatMessages(messages);
@@ -214,7 +246,7 @@ function clientMessage(
 }
 
 function normalizeStep(value: number): ClientOnboardingStep {
-  return Math.max(0, Math.min(6, Math.floor(value || 0))) as ClientOnboardingStep;
+  return Math.max(0, Math.min(7, Math.floor(value || 0))) as ClientOnboardingStep;
 }
 
 async function requireClient(clientId: string) {

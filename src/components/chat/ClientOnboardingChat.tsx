@@ -11,8 +11,6 @@ import {
   initializeClientOnboarding,
 } from "@/lib/client-onboarding";
 import type { AppAccount } from "@/lib/cloud-accounts";
-import { LOCAL_JOIN_REQUESTS_CHANGED_EVENT, fetchJoinRequest } from "@/lib/local-join-requests";
-import { ChatImageUploadDialog } from "./ChatImageUploadDialog";
 import { ChatMessageBubble } from "./ChatMessageBubble";
 import { useChat } from "./ChatProvider";
 
@@ -31,7 +29,6 @@ export function ClientOnboardingChat({
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [joinRequestPending, setJoinRequestPending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const loadMessages = useCallback(async (threadId: string) => {
@@ -42,14 +39,12 @@ export function ClientOnboardingChat({
     setLoading(true);
     setError(null);
     try {
-      const [nextFlow, nextCoach, nextRequest] = await Promise.all([
+      const [nextFlow, nextCoach] = await Promise.all([
         initializeClientOnboarding(account.id),
         fetchCoachAccount(),
-        fetchJoinRequest(account.id),
       ]);
       setFlow(nextFlow);
       setCoach(nextCoach);
-      setJoinRequestPending(nextRequest?.status === "pending");
       await loadMessages(nextFlow.threadId);
       await markChatRead(account.id, account.id);
       await refreshUnread();
@@ -93,8 +88,8 @@ export function ClientOnboardingChat({
       setError("Onboarding is not ready yet. What happened: flow not loaded. Why: local data may still be loading. What to do: wait a moment and try again, or refresh and check device storage.");
       return;
     }
-    if (flow.step < 1 || flow.step > 5) {
-      setError(`This answer is not expected at step ${flow.step}. What happened: wrong step. Why: onboarding may have already completed or is waiting for images. What to do: check if you are at the image upload stage or refresh.`);
+    if (flow.step < 1 || flow.step > 6) {
+      setError(`This answer is not expected at step ${flow.step}. What happened: wrong step. Why: onboarding may have already completed or is waiting for payment verification. What to do: refresh or contact the coach.`);
       return;
     }
     setSubmitting(true);
@@ -117,26 +112,29 @@ export function ClientOnboardingChat({
   };
 
   useEffect(() => {
-    if (flow?.step !== 6) return;
-    const checkApproval = async () => {
-      const request = await fetchJoinRequest(account.id);
-      setJoinRequestPending(request?.status === "pending");
-      if (request?.status === "approved") {
-        await refresh();
+    if (flow?.step !== 7) return;
+    // Awaiting payment verification: when the coach records the payment, the
+    // account becomes completed and the client enters the app.
+    const checkCompleted = async () => {
+      await refresh();
+      const { fetchAccount } = await import("@/lib/cloud-accounts");
+      const current = await fetchAccount(account.id);
+      if (current?.onboardingCompletedAt) {
         await onCompleted();
       }
     };
-    window.addEventListener(LOCAL_JOIN_REQUESTS_CHANGED_EVENT, checkApproval);
-    window.addEventListener("storage", checkApproval);
+    void checkCompleted();
+    const interval = window.setInterval(() => void checkCompleted(), 4000);
+    window.addEventListener("storage", () => void checkCompleted());
     return () => {
-      window.removeEventListener(LOCAL_JOIN_REQUESTS_CHANGED_EVENT, checkApproval);
-      window.removeEventListener("storage", checkApproval);
+      window.clearInterval(interval);
+      window.removeEventListener("storage", () => void checkCompleted());
     };
   }, [account.id, flow?.step, onCompleted, refresh]);
 
   const question =
-    flow && flow.step >= 1 && flow.step <= 5
-      ? CLIENT_ONBOARDING_QUESTIONS[flow.step as 1 | 2 | 3 | 4 | 5]
+    flow && flow.step >= 1 && flow.step <= 6
+      ? CLIENT_ONBOARDING_QUESTIONS[flow.step as 1 | 2 | 3 | 4 | 5 | 6]
       : null;
 
   return (
@@ -221,30 +219,15 @@ export function ClientOnboardingChat({
             </div>
           )}
 
-          {flow?.step === 6 && !flow.completedAt && (
-            <div className="space-y-3">
-              <div className="rounded-xl border border-border bg-muted/30 px-4 py-3.5">
-                <p className="text-[1rem] font-semibold leading-5 text-foreground">
-                  {joinRequestPending
-                    ? "Awaiting Coach approval"
-                    : "Send at least one image to request access"}
-                </p>
-                <p className="mt-1.5 text-[1rem] leading-5 text-muted-foreground">
-                  {joinRequestPending
-                    ? "Your images were sent. Free-text replies stay disabled until your coach approves access. You can continue sending images while waiting."
-                    : "Free-text replies stay disabled. You need to share at least one progress image to create a join request."}
-                </p>
-              </div>
-              <ChatImageUploadDialog
-                clientId={account.id}
-                senderAccountId={account.id}
-                buttonLabel={joinRequestPending ? "Send more images" : "Send images"}
-                onSent={async () => {
-                  if (flow.threadId) await loadMessages(flow.threadId);
-                  setJoinRequestPending(true);
-                  await refreshUnread();
-                }}
-              />
+          {flow?.step === 7 && !flow.completedAt && (
+            <div className="rounded-xl border border-border bg-muted/30 px-4 py-3.5">
+              <p className="text-[1rem] font-semibold leading-5 text-foreground">
+                Payment verification in progress
+              </p>
+              <p className="mt-1.5 text-[1rem] leading-5 text-muted-foreground">
+                Once your payment is verified, you&apos;ll get instant access to your personalized
+                training program.
+              </p>
             </div>
           )}
         </div>

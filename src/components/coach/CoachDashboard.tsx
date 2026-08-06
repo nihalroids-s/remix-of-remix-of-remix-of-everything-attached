@@ -4,6 +4,7 @@ import { ChevronRight, Users } from "lucide-react";
 import { type AppAccount, fetchAccounts } from "@/lib/cloud-accounts";
 import { JoinRequestsSection } from "./JoinRequestsSection";
 import { PayoutApprovalsSection } from "./PayoutApprovalsSection";
+import { PendingPaymentsSection } from "./PendingPaymentsSection";
 
 export function CoachDashboard() {
   const [clients, setClients] = useState<AppAccount[]>([]);
@@ -28,6 +29,8 @@ export function CoachDashboard() {
       </div>
 
       <JoinRequestsSection />
+
+      <PendingPaymentsSection />
 
       <PayoutApprovalsSection />
 
