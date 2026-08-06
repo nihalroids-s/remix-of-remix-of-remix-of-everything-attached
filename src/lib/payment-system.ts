@@ -8,6 +8,15 @@ import { emitLocalEvent } from "./local-events";
 
 export type PaymentTag = "new_user" | "membership";
 
+export type PaymentStartedRecord = {
+  id: string;
+  clientId: string;
+  clientUsername: string;
+  clientName: string;
+  method: "card" | "paypal";
+  startedAt: string;
+};
+
 export type PaymentRecord = {
   id: string;
   clientName: string;
@@ -45,6 +54,7 @@ export const LOCAL_PAYOUTS_CHANGED_EVENT = "no-more-copium:local-payouts-changed
 
 const PAYMENTS_STORAGE_KEY = "no-more-copium:payments:v1";
 const PAYOUTS_STORAGE_KEY = "no-more-copium:payouts:v1";
+const PAYMENT_STARTED_STORAGE_KEY = "no-more-copium:payment-started:v1";
 
 export function formatUsd(value: number): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
@@ -52,6 +62,44 @@ export function formatUsd(value: number): string {
 
 export async function fetchPayments(): Promise<PaymentRecord[]> {
   return readPayments().sort((left, right) => right.recordedAt.localeCompare(left.recordedAt));
+}
+
+export async function recordPaymentStarted({
+  clientId,
+  method,
+}: {
+  clientId: string;
+  method: "card" | "paypal";
+}): Promise<PaymentStartedRecord> {
+  const accounts = await fetchAccounts();
+  const client = accounts.find(
+    (account) => account.role === "client" && account.id === clientId,
+  );
+  if (!client) {
+    throw new Error("No client account was found for this payment.");
+  }
+  const record: PaymentStartedRecord = {
+    id: createPaymentId(),
+    clientId: client.id,
+    clientUsername: client.username,
+    clientName: client.name,
+    method,
+    startedAt: new Date().toISOString(),
+  };
+  const records = readPaymentStarted();
+  writePaymentStarted([...records.filter((candidate) => candidate.clientId !== client.id), record]);
+  return record;
+}
+
+export async function fetchPaymentStartedRecords(): Promise<PaymentStartedRecord[]> {
+  return readPaymentStarted().sort((left, right) =>
+    right.startedAt.localeCompare(left.startedAt),
+  );
+}
+
+export function clearPaymentStartedForClient(clientId: string): void {
+  const next = readPaymentStarted().filter((record) => record.clientId !== clientId);
+  writePaymentStarted(next);
 }
 
 export async function fetchPayouts(): Promise<PayoutRecord[]> {
@@ -99,6 +147,7 @@ export async function recordPayment({
   writePayments([...payments, record]);
   // A confirmed payment unlocks the client automatically.
   await unlockClientAccount(client.id);
+  clearPaymentStartedForClient(client.id);
   return record;
 }
 
@@ -176,11 +225,29 @@ export function paymentTotals(
 
 async function unlockClientAccount(clientId: string): Promise<void> {
   await updateLocalAccount(clientId, {
-    onboardingStep: 6,
+    onboardingStep: 7,
     onboardingCompletedAt: new Date().toISOString(),
   });
   const request = await fetchJoinRequest(clientId);
   if (request) removeLocalJoinRequest(clientId);
+}
+
+function readPaymentStarted(): PaymentStartedRecord[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const parsed: unknown = JSON.parse(
+      window.localStorage.getItem(PAYMENT_STARTED_STORAGE_KEY) ?? "[]",
+    );
+    return Array.isArray(parsed) ? (parsed as PaymentStartedRecord[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePaymentStarted(records: PaymentStartedRecord[]): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(PAYMENT_STARTED_STORAGE_KEY, JSON.stringify(records));
+  emitLocalEvent(LOCAL_PAYMENTS_CHANGED_EVENT);
 }
 
 function createPaymentId(): string {

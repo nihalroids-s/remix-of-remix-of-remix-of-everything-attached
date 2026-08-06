@@ -6,8 +6,9 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import type { ChatMessage } from "@/lib/chat";
-import { ONBOARDING_FINAL_MESSAGE } from "@/lib/client-onboarding";
+import { ONBOARDING_PAYMENT_BOX_BODY } from "@/lib/client-onboarding";
 import { decodeFinalSequenceMessage, type FinalSequenceLine } from "@/lib/final-sequence";
+import { PaymentBox } from "@/components/payment/PaymentBox";
 import { cn } from "@/lib/utils";
 
 export function ChatMessageBubble({ message, own }: { message: ChatMessage; own: boolean }) {
@@ -21,7 +22,11 @@ export function ChatMessageBubble({ message, own }: { message: ChatMessage; own:
             : "rounded-bl-sm bg-muted text-foreground",
         )}
       >
-        {message.body && <ChatMessageBody body={message.body} interactive={!own} />}
+        {message.body === ONBOARDING_PAYMENT_BOX_BODY ? (
+          <PaymentBox />
+        ) : (
+          message.body && <ChatMessageBody body={message.body} interactive={!own} />
+        )}
         {message.attachments && message.attachments.length > 0 && (
           <div
             className={cn(
@@ -80,7 +85,7 @@ export function ChatMessageBubble({ message, own }: { message: ChatMessage; own:
   );
 }
 
-function ChatMessageBody({ body, interactive }: { body: string; interactive: boolean }) {
+function ChatMessageBody({ body }: { body: string; interactive: boolean }) {
   const structured = decodeFinalSequenceMessage(body);
   if (structured) {
     return (
@@ -88,15 +93,6 @@ function ChatMessageBody({ body, interactive }: { body: string; interactive: boo
         {structured.lines.map((line) => (
           <StructuredLine key={line.id} line={line} />
         ))}
-      </div>
-    );
-  }
-
-  if (interactive && body === ONBOARDING_FINAL_MESSAGE) {
-    return (
-      <div className="break-words text-[1rem] leading-6">
-        <p>placeholder</p>
-        <PopupLink text="placeholder" />
       </div>
     );
   }
@@ -117,28 +113,8 @@ function StructuredLine({ line }: { line: FinalSequenceLine }) {
       </a>
     );
   }
-  if (line.type === "popup_link") return <PopupLink text={line.text} />;
+  if (line.type === "popup_link") return <span className="font-medium text-blue-500">{line.text}</span>;
   return <p className="whitespace-pre-wrap break-words">{line.text}</p>;
-}
-
-function PopupLink({ text }: { text: string }) {
-  return (
-    <Dialog>
-      <DialogTrigger asChild>
-        <button
-          type="button"
-          className="block break-words text-left font-medium text-blue-500 underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-        >
-          {text}
-        </button>
-      </DialogTrigger>
-      <DialogContent className="h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-2xl rounded-xl p-0">
-        <DialogTitle className="sr-only">{text}</DialogTitle>
-        <DialogDescription className="sr-only">Empty placeholder popup.</DialogDescription>
-        <div className="h-full w-full" aria-hidden="true" />
-      </DialogContent>
-    </Dialog>
-  );
 }
 
 function formatMessageTime(value: string): string {

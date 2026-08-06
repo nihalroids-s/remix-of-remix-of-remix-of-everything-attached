@@ -1,8 +1,8 @@
-import { Bot, MessagesSquare, Radio } from "lucide-react";
+import { CreditCard, MessagesSquare, Radio } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BroadcastComposer } from "./BroadcastComposer";
 import { CoachChatInbox } from "./CoachChatInbox";
-import { FinalSequenceEditor } from "./FinalSequenceEditor";
+import { PaymentSettingsForm } from "./PaymentSettingsForm";
 
 export function CoachMessagingPage() {
   return (
@@ -20,9 +20,9 @@ export function CoachMessagingPage() {
             <MessagesSquare className="h-5 w-5" aria-hidden="true" />
             Conversations
           </TabsTrigger>
-          <TabsTrigger value="automations" className="min-h-11 gap-1.5 rounded-lg px-3 py-2.5 text-[1rem] font-medium">
-            <Bot className="h-5 w-5" aria-hidden="true" />
-            Automations
+          <TabsTrigger value="payment" className="min-h-11 gap-1.5 rounded-lg px-3 py-2.5 text-[1rem] font-medium">
+            <CreditCard className="h-5 w-5" aria-hidden="true" />
+            Payment
           </TabsTrigger>
           <TabsTrigger value="broadcasts" className="min-h-11 gap-1.5 rounded-lg px-3 py-2.5 text-[1rem] font-medium">
             <Radio className="h-5 w-5" aria-hidden="true" />
@@ -34,8 +34,8 @@ export function CoachMessagingPage() {
           <CoachChatInbox showHeader={false} />
         </TabsContent>
 
-        <TabsContent value="automations" className="mt-6">
-          <FinalSequenceEditor />
+        <TabsContent value="payment" className="mt-6">
+          <PaymentSettingsForm />
         </TabsContent>
 
         <TabsContent value="broadcasts" className="mt-6">
