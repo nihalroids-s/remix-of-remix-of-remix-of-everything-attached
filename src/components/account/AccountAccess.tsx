@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { AlertCircle, LoaderCircle } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccount } from "./AccountProvider";
+import { GoogleSignInButton } from "./GoogleSignInButton";
 import {
   type AppAccount,
   bootstrapAccount,
@@ -30,7 +31,6 @@ export function AccountAccess() {
   const navigate = useNavigate();
   const { login, configured } = useAccount();
   const [phase, setPhase] = useState<"loading" | "signin" | "details" | "error">("loading");
-  const [signingIn, setSigningIn] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
@@ -99,24 +99,6 @@ export function AccountAccess() {
     }
   };
 
-  const handleGoogle = async () => {
-    setSigningIn(true);
-    setError(null);
-    try {
-      await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: { redirectTo: window.location.origin },
-      });
-      // Page redirects to Google; nothing else to do here.
-    } catch (nextError) {
-      setSigningIn(false);
-      setError(
-        nextError instanceof Error
-          ? nextError.message
-          : "Google sign-in could not be started. What happened: OAuth failed. Why: the Google provider may not be configured. What to do: check Auth → Google in Lovable Cloud settings.",
-      );
-    }
-  };
 
   if (phase === "loading") {
     return (
@@ -131,19 +113,7 @@ export function AccountAccess() {
   if (phase === "signin") {
     return (
       <div className="space-y-4">
-        <Button
-          type="button"
-          onClick={() => void handleGoogle()}
-          disabled={signingIn}
-          className="min-h-12 w-full justify-center gap-2.5 rounded-xl text-[1rem] font-semibold"
-        >
-          {signingIn ? (
-            <LoaderCircle className="h-5 w-5 animate-spin" aria-hidden="true" />
-          ) : (
-            <GoogleIcon />
-          )}
-          {signingIn ? "Opening Google…" : "Continue with Google"}
-        </Button>
+        <GoogleSignInButton />
         <p className="text-center text-[0.875rem] leading-5 text-muted-foreground">
           Your coach&apos;s Google account gets Coach mode automatically. Everyone else joins as a
           client.
@@ -268,25 +238,3 @@ export function AccountAccess() {
   );
 }
 
-function GoogleIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
-      <path
-        fill="#4285F4"
-        d="M23.5 12.27c0-.79-.07-1.54-.2-2.27H12v4.51h6.46a5.52 5.52 0 0 1-2.4 3.62v3h3.88c2.27-2.09 3.56-5.17 3.56-8.86Z"
-      />
-      <path
-        fill="#34A853"
-        d="M12 24c3.24 0 5.96-1.07 7.94-2.91l-3.88-3c-1.08.72-2.45 1.15-4.06 1.15-3.13 0-5.78-2.11-6.73-4.95H1.27v3.09A12 12 0 0 0 12 24Z"
-      />
-      <path
-        fill="#FBBC05"
-        d="M5.27 14.29A7.2 7.2 0 0 1 4.91 12c0-.8.14-1.57.36-2.29V6.62H1.27a12 12 0 0 0 0 10.76l4-3.09Z"
-      />
-      <path
-        fill="#EA4335"
-        d="M12 4.76c1.76 0 3.34.6 4.58 1.79l3.44-3.44A11.98 11.98 0 0 0 1.27 6.62l4 3.09C6.22 6.87 8.87 4.76 12 4.76Z"
-      />
-    </svg>
-  );
-}
