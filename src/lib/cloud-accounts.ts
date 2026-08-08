@@ -16,12 +16,17 @@ export type AppAccount = {
 
 export const ACTIVE_ACCOUNT_STORAGE_KEY = "no-more-copium:active-account:v3";
 export const LOCAL_ACCOUNTS_STORAGE_KEY = "no-more-copium:accounts:v3";
-export const USERNAME_PATTERN = /^[a-z0-9]+(?: [a-z0-9]+)*$/;
+export const USERNAME_PATTERN = /^[A-Za-z0-9_]+$/;
 export const USERNAME_MIN_LENGTH = 3;
 export const USERNAME_MAX_LENGTH = 30;
 
 export function normalizeUsername(value: string): string {
-  return value.trim().toLowerCase().replace(/\s+/g, " ");
+  return value.trim();
+}
+
+/** Case-insensitive key used for uniqueness and matching. */
+export function usernameKey(value: string): string {
+  return normalizeUsername(value).toLowerCase();
 }
 
 export function validateUsername(value: string): string | null {
@@ -30,7 +35,7 @@ export function validateUsername(value: string): string | null {
     return `Username must be ${USERNAME_MIN_LENGTH}–${USERNAME_MAX_LENGTH} characters.`;
   }
   if (!USERNAME_PATTERN.test(username)) {
-    return "Use only lowercase letters, numbers, and single spaces between words.";
+    return "Use only A–Z, a–z, 0–9, and underscores.";
   }
   return null;
 }
@@ -59,7 +64,7 @@ export async function createAccount(input: {
   if (usernameError) throw new Error(usernameError);
 
   const accounts = readAccounts();
-  if (accounts.some((account) => account.username === username)) {
+  if (accounts.some((account) => usernameKey(account.username) === usernameKey(username))) {
     throw new Error("That username is already taken on this device.");
   }
   if (input.role === "coach" && accounts.some((account) => account.role === "coach")) {

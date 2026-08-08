@@ -14,7 +14,7 @@ import {
 import { useAccount } from "./AccountProvider";
 
 function normalizeUsername(raw: string): string {
-  return raw.trim().toLowerCase().replace(/\s+/g, " ").slice(0, 30);
+  return raw.trim().slice(0, 30);
 }
 
 function validateName(name: string): string | null {
@@ -25,12 +25,12 @@ function validateName(name: string): string | null {
 }
 
 function validateUsername(username: string, existingUsernames: string[]): string | null {
-  const trimmed = username.trim().toLowerCase();
-  if (!trimmed) return "Username is required. Choose 3–30 lowercase letters, numbers, and spaces, unique on this device.";
+  const trimmed = username.trim();
+  if (!trimmed) return "Username is required. Choose 3–30 letters, numbers, or underscores.";
   if (trimmed.length < 3) return "Username must be at least 3 characters.";
   if (trimmed.length > 30) return "Username must be 30 characters or less.";
-  if (!/^[a-z0-9 ]+$/.test(trimmed)) return "Username can only use lowercase letters, numbers, and spaces.";
-  if (existingUsernames.includes(trimmed)) return "This username is already taken on this device. Choose another username.";
+  if (!/^[A-Za-z0-9_]+$/.test(trimmed)) return "Username can only use A–Z, a–z, 0–9, and underscores.";
+  if (existingUsernames.includes(trimmed.toLowerCase())) return "This username is already taken. Choose another username.";
   return null;
 }
 
@@ -104,7 +104,7 @@ export function AccountAccess() {
     } catch (nextError) {
       const raw = nextError instanceof Error ? nextError.message : "";
       if (raw.toLowerCase().includes("username") || raw.toLowerCase().includes("taken") || raw.toLowerCase().includes("unique")) {
-        setError("Your account could not be created because this username is already taken on this device. What happened: username conflict. Why: local usernames must be unique. What to do: choose another username with 3–30 lowercase letters, numbers, and spaces.");
+        setError("Your account could not be created because this username is already taken on this device. What happened: username conflict. Why: usernames must be unique. What to do: choose another username with 3–30 letters, numbers, and underscores.");
       } else if (raw.toLowerCase().includes("storage") || raw.toLowerCase().includes("quota")) {
         setError("Your account could not be created because local storage is unavailable or full. What happened: storage write failed. Why: device storage may be full or blocked. What to do: check device storage, free space, and try again.");
       } else {
@@ -137,6 +137,7 @@ export function AccountAccess() {
             onChange={(event) => setName(event.target.value)}
             onBlur={() => setNameTouched(true)}
             maxLength={80}
+            placeholder="Your name"
             autoFocus
             aria-invalid={!!nameError}
             aria-describedby={nameError ? "name-error name-count" : "name-count"}
@@ -148,10 +149,8 @@ export function AccountAccess() {
                 <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
                 <span>{nameError}</span>
               </p>
-            ) : (
-              <p className="text-[1rem] leading-5 text-muted-foreground">Use your real name — it helps your coach recognize you.</p>
-            )}
-            <span id="name-count" className="shrink-0 text-[0.8125rem] tabular-nums text-muted-foreground" aria-live="polite">
+            ) : null}
+            <span id="name-count" className="ml-auto shrink-0 text-[0.8125rem] tabular-nums text-muted-foreground" aria-live="polite">
               {name.length}/80
             </span>
           </div>
@@ -161,9 +160,9 @@ export function AccountAccess() {
           <Input
             id="local-account-username"
             value={username}
-            onChange={(event) => setUsername(event.target.value.toLowerCase())}
+            onChange={(event) => setUsername(event.target.value)}
             onBlur={() => setUsernameTouched(true)}
-            placeholder="your username"
+            placeholder="Your username"
             maxLength={30}
             autoCapitalize="none"
             autoCorrect="off"
@@ -181,7 +180,7 @@ export function AccountAccess() {
                 </p>
               ) : (
                 <p id="username-hint" className="text-[1rem] leading-5 text-muted-foreground">
-                  3–30 lowercase letters, numbers, and spaces. Unique on this device.
+                  3–30 letters (A–Z, a–z), numbers, and underscores. Unique.
                 </p>
               )}
             </div>

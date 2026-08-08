@@ -1,6 +1,7 @@
 import {
   fetchAccounts,
   normalizeUsername,
+  usernameKey,
   updateLocalAccount,
 } from "./cloud-accounts";
 import { fetchJoinRequest, removeLocalJoinRequest } from "./local-join-requests";
@@ -120,7 +121,8 @@ export async function recordPayment({
   const username = normalizeUsername(clientUsername);
   const accounts = await fetchAccounts();
   const client = accounts.find(
-    (account) => account.role === "client" && account.username === username,
+    (account) =>
+      account.role === "client" && usernameKey(account.username) === usernameKey(username),
   );
   if (!client) {
     throw new Error(
@@ -130,7 +132,7 @@ export async function recordPayment({
   const amount = Number.isFinite(amountUsd) && amountUsd > 0 ? amountUsd : PAYMENT_AMOUNT_USD;
   const payments = readPayments();
   const tag: PaymentTag = payments.some(
-    (payment) => payment.clientUsername === client.username,
+    (payment) => usernameKey(payment.clientUsername) === usernameKey(client.username),
   )
     ? "membership"
     : "new_user";

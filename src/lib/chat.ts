@@ -249,34 +249,6 @@ export async function appendLocalChatMessages(messages: ChatMessage[]): Promise<
   appendMessages(messages);
 }
 
-export async function resetLocalClientChat(clientId: string): Promise<void> {
-  const threads = read<LocalThread[]>(THREADS_KEY, []);
-  const thread = threads.find((candidate) => candidate.clientId === clientId);
-  if (!thread) return;
-  const messages = read<ChatMessage[]>(MESSAGES_KEY, []);
-  const removedMessages = messages.filter((message) => message.threadId === thread.id);
-  await Promise.all(
-    removedMessages.flatMap((message) =>
-      (message.attachments ?? []).map((attachment) =>
-        deleteLocalBlob(attachment.storageKey).catch(() => undefined),
-      ),
-    ),
-  );
-  write(
-    MESSAGES_KEY,
-    messages.filter((message) => message.threadId !== thread.id),
-  );
-  write(
-    THREADS_KEY,
-    threads.filter((candidate) => candidate.id !== thread.id),
-  );
-  write(
-    READS_KEY,
-    read<LocalRead[]>(READS_KEY, []).filter((entry) => entry.threadId !== thread.id),
-  );
-  emitLocalEvent(LOCAL_CHAT_CHANGED_EVENT);
-}
-
 export async function markChatRead(accountId: string, clientId: string): Promise<void> {
   const threadId = await ensureChatThread(clientId);
   const reads = read<LocalRead[]>(READS_KEY, []);
