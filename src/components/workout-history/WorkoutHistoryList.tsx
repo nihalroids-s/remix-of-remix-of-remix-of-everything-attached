@@ -333,6 +333,7 @@ function WorkoutSessionDetails({ id, session }: { id: string; session: WorkoutHi
   const [draft, setDraft] = useState<WorkoutSessionData | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const volume = formatVolume(session);
 
@@ -350,21 +351,34 @@ function WorkoutSessionDetails({ id, session }: { id: string; session: WorkoutHi
     if (!draft) return;
     setSaving(true);
     try {
-      updateWorkoutSession(session.clientId, session.id, { data: draft });
+      await updateWorkoutSession(session.clientId, session.id, { data: draft });
       setDraft(null);
       setEditing(false);
+      setActionError(null);
+    } catch {
+      setActionError("Workout history could not be updated on the cloud. What happened: save failed. Why: the cloud may be unreachable. What to do: try again.");
     } finally {
       setSaving(false);
     }
   };
 
-  const confirmDelete = () => {
-    deleteWorkoutSession(session.clientId, session.id);
-    setDeleteOpen(false);
+  const confirmDelete = async () => {
+    try {
+      await deleteWorkoutSession(session.clientId, session.id);
+      setDeleteOpen(false);
+      setActionError(null);
+    } catch {
+      setActionError("Workout history entry could not be deleted. What happened: delete failed. Why: the cloud may be unreachable. What to do: try again.");
+    }
   };
 
   return (
     <div id={id} className="space-y-5 border-t border-border p-5">
+      {actionError && (
+        <p className="rounded-xl border border-destructive/40 bg-destructive/5 px-4 py-3 text-[1rem] leading-5 text-destructive">
+          {actionError}
+        </p>
+      )}
       <div className="flex items-center justify-between gap-2">
         <dl className="grid grid-cols-2 gap-2.5">
           <HistoryStat label="Duration" value={formatElapsed(session.durationSeconds)} />

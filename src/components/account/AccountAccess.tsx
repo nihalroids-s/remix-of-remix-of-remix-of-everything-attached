@@ -1,21 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { Plus, AlertCircle } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { AlertCircle, LoaderCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  type AccountRole,
-  type AppAccount,
-  createAccount,
-  fetchAccounts,
-} from "@/lib/cloud-accounts";
+import { supabase } from "@/integrations/supabase/client";
 import { useAccount } from "./AccountProvider";
-
-function normalizeUsername(raw: string): string {
-  return raw.trim().slice(0, 30);
-}
+import {
+  type AppAccount,
+  bootstrapAccount,
+  normalizeUsername,
+  validateUsername,
+} from "@/lib/cloud-accounts";
 
 function validateName(name: string): string | null {
   if (!name.trim()) return "Your name is required. Enter your full name to continue.";
@@ -24,115 +20,151 @@ function validateName(name: string): string | null {
   return null;
 }
 
-function validateUsername(username: string, existingUsernames: string[]): string | null {
-  const trimmed = username.trim();
-  if (!trimmed) return "Username is required. Choose 3–30 letters, numbers, or underscores.";
-  if (trimmed.length < 3) return "Username must be at least 3 characters.";
-  if (trimmed.length > 30) return "Username must be 30 characters or less.";
-  if (!/^[A-Za-z0-9_]+$/.test(trimmed)) return "Username can only use A–Z, a–z, 0–9, and underscores.";
-  if (existingUsernames.includes(trimmed.toLowerCase())) return "This username is already taken. Choose another username.";
-  return null;
+function enterRouteFor(account: AppAccount): string {
+  if (account.role === "coach") return "/coach/dashboard";
+  if (account.onboardingCompletedAt) return "/client/dashboard";
+  return "/onboarding";
 }
 
 export function AccountAccess() {
   const navigate = useNavigate();
-  const { login } = useAccount();
-  const [accounts, setAccounts] = useState<AppAccount[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
-  const [step, setStep] = useState<"details" | "role">("details");
+  const { login, configured } = useAccount();
+  const [phase, setPhase] = useState<"loading" | "signin" | "details" | "error">("loading");
+  const [signingIn, setSigningIn] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
   const [nameTouched, setNameTouched] = useState(false);
   const [usernameTouched, setUsernameTouched] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    fetchAccounts()
-      .then((next) => {
-        setAccounts(next);
-        setCreating(next.length === 0);
-      })
-      .finally(() => setLoading(false));
-  }, []);
-
-  const coachExists = accounts.some((account) => account.role === "coach");
-  const paymentManagerExists = accounts.some((account) => account.role === "payment_manager");
-  const existingUsernames = useMemo(() => accounts.map((a) => a.username.toLowerCase()), [accounts]);
+    if (!configured) {
+      setPhase("error");
+      setError(
+        "Cloud is not connected. What happened: Supabase environment variables are missing. Why: Lovable Cloud is not enabled for this project. What to do: enable Lovable Cloud and rebuild.",
+      );
+      return;
+    }
+    void (async () => {
+      const session = await supabase.auth.getSession();
+      if (!session.data.session) {
+        setPhase("signin");
+        return;
+      }
+      try {
+        const account = await bootstrapAccount();
+        login(account);
+        void navigate({ to: enterRouteFor(account) as never });
+      } catch (nextError) {
+        const message = nextError instanceof Error ? nextError.message : "";
+        if (/name|username/i.test(message)) {
+          // New client — needs to pick a name + username.
+          setPhase("details");
+        } else {
+          setPhase("error");
+          setError(message);
+        }
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [configured]);
 
   const nameError = nameTouched ? validateName(name) : null;
-  const usernameError = usernameTouched ? validateUsername(username, existingUsernames) : null;
-  const detailsValid = !validateName(name) && !validateUsername(username, existingUsernames);
+  const usernameError = usernameTouched ? validateUsername(username) : null;
+  const detailsValid = !validateName(name) && !validateUsername(username);
 
-  const enterAccount = (account: AppAccount) => {
-    login(account);
-    void navigate({
-      to:
-        account.role === "coach"
-          ? "/coach/dashboard"
-          : account.role === "payment_manager"
-            ? "/payment/dashboard"
-            : account.onboardingCompletedAt
-              ? "/client/dashboard"
-              : "/onboarding",
-    });
-  };
-
-  const submitDetails = (event: React.FormEvent) => {
+  const submitDetails = async (event: React.FormEvent) => {
     event.preventDefault();
     setNameTouched(true);
     setUsernameTouched(true);
     const nErr = validateName(name);
-    const uErr = validateUsername(username, existingUsernames);
+    const uErr = validateUsername(username);
     if (nErr || uErr) {
       setError(nErr || uErr);
       return;
     }
-    setUsername(normalizeUsername(username));
-    setError(null);
-    setStep("role");
-  };
-
-  const chooseRole = async (role: AccountRole) => {
     setSubmitting(true);
     setError(null);
     try {
-      const account = await createAccount({ name: name.trim(), username: normalizeUsername(username), role });
-      setAccounts((previous) => [...previous, account]);
-      enterAccount(account);
+      const account = await bootstrapAccount({
+        name: name.trim(),
+        username: normalizeUsername(username),
+      });
+      login(account);
+      void navigate({ to: enterRouteFor(account) as never });
     } catch (nextError) {
-      const raw = nextError instanceof Error ? nextError.message : "";
-      if (raw.toLowerCase().includes("username") || raw.toLowerCase().includes("taken") || raw.toLowerCase().includes("unique")) {
-        setError("Your account could not be created because this username is already taken on this device. What happened: username conflict. Why: usernames must be unique. What to do: choose another username with 3–30 letters, numbers, and underscores.");
-      } else if (raw.toLowerCase().includes("storage") || raw.toLowerCase().includes("quota")) {
-        setError("Your account could not be created because local storage is unavailable or full. What happened: storage write failed. Why: device storage may be full or blocked. What to do: check device storage, free space, and try again.");
-      } else {
-        setError("Your account could not be created because local storage is unavailable. What happened: account creation failed. Why: browser storage may be blocked or full. What to do: check device storage, ensure cookies/storage are enabled, and try again. Your data stays only in this browser.");
-      }
-    } finally {
+      setError(nextError instanceof Error ? nextError.message : "Your account could not be created.");
       setSubmitting(false);
     }
   };
 
-  if (loading) {
+  const handleGoogle = async () => {
+    setSigningIn(true);
+    setError(null);
+    try {
+      await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: { redirectTo: window.location.origin },
+      });
+      // Page redirects to Google; nothing else to do here.
+    } catch (nextError) {
+      setSigningIn(false);
+      setError(
+        nextError instanceof Error
+          ? nextError.message
+          : "Google sign-in could not be started. What happened: OAuth failed. Why: the Google provider may not be configured. What to do: check Auth → Google in Lovable Cloud settings.",
+      );
+    }
+  };
+
+  if (phase === "loading") {
     return (
-      <div className="space-y-3" aria-label="Loading local accounts">
-        <div className="h-10 w-32 rounded-lg bg-muted/60 skeleton-shimmer" />
-        <div className="h-14 w-full rounded-xl bg-muted/60 skeleton-shimmer" />
+      <div className="space-y-3" aria-label="Loading your account">
+        <div className="h-12 w-full rounded-xl bg-muted/60 skeleton-shimmer" />
         <div className="h-14 w-full rounded-xl bg-muted/60 skeleton-shimmer" />
         <div className="h-10 w-full rounded-xl bg-muted/60 skeleton-shimmer" />
       </div>
     );
   }
 
-  if (creating) {
-    return step === "details" ? (
+  if (phase === "signin") {
+    return (
+      <div className="space-y-4">
+        <Button
+          type="button"
+          onClick={() => void handleGoogle()}
+          disabled={signingIn}
+          className="min-h-12 w-full justify-center gap-2.5 rounded-xl text-[1rem] font-semibold"
+        >
+          {signingIn ? (
+            <LoaderCircle className="h-5 w-5 animate-spin" aria-hidden="true" />
+          ) : (
+            <GoogleIcon />
+          )}
+          {signingIn ? "Opening Google…" : "Continue with Google"}
+        </Button>
+        <p className="text-center text-[0.875rem] leading-5 text-muted-foreground">
+          Your coach&apos;s Google account gets Coach mode automatically. Everyone else joins as a
+          client.
+        </p>
+        {error && (
+          <div className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-[1rem] leading-5 text-destructive" role="alert">
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
+            <p className="min-w-0 flex-1 break-words">{error}</p>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (phase === "details") {
+    return (
       <form onSubmit={submitDetails} className="space-y-5" noValidate>
         <div className="space-y-1.5 text-left">
-          <Label htmlFor="local-account-name">Your name</Label>
+          <Label htmlFor="cloud-account-name">Your name</Label>
           <Input
-            id="local-account-name"
+            id="cloud-account-name"
             value={name}
             onChange={(event) => setName(event.target.value)}
             onBlur={() => setNameTouched(true)}
@@ -156,9 +188,9 @@ export function AccountAccess() {
           </div>
         </div>
         <div className="space-y-1.5 text-left">
-          <Label htmlFor="local-account-username">Username</Label>
+          <Label htmlFor="cloud-account-username">Username</Label>
           <Input
-            id="local-account-username"
+            id="cloud-account-username"
             value={username}
             onChange={(event) => setUsername(event.target.value)}
             onBlur={() => setUsernameTouched(true)}
@@ -199,137 +231,62 @@ export function AccountAccess() {
           type="submit"
           className="min-h-12 w-full rounded-xl text-[1rem] font-semibold"
           disabled={submitting || !detailsValid}
-          aria-describedby={!detailsValid ? "form-requirements" : undefined}
         >
-          Continue
+          {submitting ? "Creating account…" : "Create account"}
         </Button>
-        {!detailsValid && (
-          <p id="form-requirements" className="text-[1rem] leading-5 text-muted-foreground">
-            Enter a valid name (2–80 characters) and username (3–30 characters, unique) to continue.
-          </p>
-        )}
-        {accounts.length > 0 && (
-          <Button
-            type="button"
-            variant="ghost"
-            className="min-h-11 w-full rounded-xl text-[1rem]"
-            onClick={() => setCreating(false)}
-          >
-            Back to accounts
-          </Button>
-        )}
+        <Button
+          type="button"
+          variant="ghost"
+          className="min-h-11 w-full rounded-xl text-[1rem]"
+          disabled={submitting}
+          onClick={() => void supabase.auth.signOut()}
+        >
+          Use a different Google account
+        </Button>
       </form>
-    ) : (
-      <div className="space-y-5">
-        <div className="text-left">
-          <h2 className="text-[1.25rem] font-semibold leading-tight tracking-tight">Choose account type</h2>
-          <p className="mt-1.5 text-[1rem] leading-6 text-muted-foreground">
-            This local prototype choice is permanent on this device. You can create one Coach, one Payment Manager, and many Clients.
-          </p>
-        </div>
-        <div className="grid gap-2.5">
-          <Button
-            type="button"
-            className="min-h-12 w-full justify-start rounded-xl px-4 py-3 text-[1rem] font-semibold"
-            disabled={submitting || coachExists}
-            onClick={() => void chooseRole("coach")}
-          >
-            Coach Mode
-            <span className="ml-auto text-[1rem] font-normal text-primary-foreground/80">Build programs</span>
-          </Button>
-          {coachExists && (
-            <p className="px-1 text-[0.875rem] leading-5 text-muted-foreground">A local Coach already exists. You cannot create another.</p>
-          )}
-          <Button
-            type="button"
-            variant="outline"
-            className="min-h-12 w-full justify-start rounded-xl px-4 py-3 text-[1rem] font-semibold"
-            disabled={submitting || !coachExists}
-            onClick={() => void chooseRole("client")}
-          >
-            Client Mode
-            <span className="ml-auto text-[1rem] font-normal text-muted-foreground">Follow programs</span>
-          </Button>
-          {!coachExists && (
-            <p className="px-1 text-[0.875rem] leading-5 text-muted-foreground">
-              Create the local Coach first so Client onboarding and chat have a Coach.
-            </p>
-          )}
-          <Button
-            type="button"
-            variant="outline"
-            className="min-h-12 w-full justify-start rounded-xl px-4 py-3 text-[1rem] font-semibold"
-            disabled={submitting || !coachExists || paymentManagerExists}
-            onClick={() => void chooseRole("payment_manager")}
-          >
-            Payment Mode
-            <span className="ml-auto text-[1rem] font-normal text-muted-foreground">Track payments</span>
-          </Button>
-          {paymentManagerExists && (
-            <p className="px-1 text-[0.875rem] leading-5 text-muted-foreground">
-              A local Payment Manager already exists. You cannot create another.
-            </p>
-          )}
-        </div>
-        {!coachExists && !submitting && (
-          <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[1rem] leading-5 text-amber-900 dark:text-amber-100">
-            What to do next: Create the Coach account first. The Client flow needs a Coach to assign programs and read your messages.
-          </p>
-        )}
-        {error && (
-          <div className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-[1rem] leading-5 text-destructive" role="alert">
-            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
-            <p className="min-w-0 flex-1 break-words">{error}</p>
-          </div>
-        )}
-        <Button type="button" variant="ghost" className="min-h-11 w-full rounded-xl text-[1rem]" onClick={() => setStep("details")}>
-          Back
-        </Button>
-      </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      <div className="space-y-2.5">
-        {accounts.map((account) => (
-          <button
-            key={account.id}
-            type="button"
-            onClick={() => enterAccount(account)}
-            className="flex min-h-[64px] w-full items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3 text-left shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-[1rem] font-medium leading-5">{account.name}</span>
-              <span className="block truncate text-[1rem] leading-5 text-muted-foreground">@{account.username}</span>
-            </span>
-            <Badge variant={account.role === "coach" ? "default" : "secondary"} className="rounded-md px-2.5 py-1 text-[0.75rem]">
-              {account.role === "coach"
-                ? "Coach"
-                : account.role === "payment_manager"
-                  ? "Payment Manager"
-                  : "Client"}
-            </Badge>
-          </button>
-        ))}
+      <div className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-[1rem] leading-5 text-destructive" role="alert">
+        <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
+        <p className="min-w-0 flex-1 break-words">{error}</p>
       </div>
       <Button
         type="button"
         variant="outline"
-        className="min-h-12 w-full rounded-xl text-[1rem] font-semibold"
+        className="min-h-12 w-full rounded-xl text-[1rem]"
         onClick={() => {
-          setCreating(true);
-          setStep("details");
           setError(null);
-          setName("");
-          setUsername("");
-          setNameTouched(false);
-          setUsernameTouched(false);
+          setPhase("signin");
         }}
       >
-        <Plus className="h-5 w-5" aria-hidden="true" />
-        Create a new local account
+        Try again
       </Button>
     </div>
+  );
+}
+
+function GoogleIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
+      <path
+        fill="#4285F4"
+        d="M23.5 12.27c0-.79-.07-1.54-.2-2.27H12v4.51h6.46a5.52 5.52 0 0 1-2.4 3.62v3h3.88c2.27-2.09 3.56-5.17 3.56-8.86Z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 24c3.24 0 5.96-1.07 7.94-2.91l-3.88-3c-1.08.72-2.45 1.15-4.06 1.15-3.13 0-5.78-2.11-6.73-4.95H1.27v3.09A12 12 0 0 0 12 24Z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M5.27 14.29A7.2 7.2 0 0 1 4.91 12c0-.8.14-1.57.36-2.29V6.62H1.27a12 12 0 0 0 0 10.76l4-3.09Z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12 4.76c1.76 0 3.34.6 4.58 1.79l3.44-3.44A11.98 11.98 0 0 0 1.27 6.62l4 3.09C6.22 6.87 8.87 4.76 12 4.76Z"
+      />
+    </svg>
   );
 }

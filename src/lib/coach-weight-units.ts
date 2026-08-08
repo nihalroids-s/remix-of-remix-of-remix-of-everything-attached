@@ -1,4 +1,6 @@
 import { emitCloudDataChanged } from "./cloud-events";
+import { getCloudCache, persistCloudAppStateField, setCloudCacheField } from "./cloud-cache";
+
 
 export type WeightUnit = {
   id: string;
@@ -60,11 +62,9 @@ function normalizeCustomWeightUnit(value: unknown): WeightUnit | null {
 export function loadCustomWeightUnits(): WeightUnit[] {
   if (typeof window === "undefined") return [];
   try {
-    const stored = window.localStorage.getItem(CUSTOM_WEIGHT_UNITS_STORAGE_KEY);
-    if (!stored) return [];
-    const parsed: unknown = JSON.parse(stored);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
+    const cached = getCloudCache().weightUnits;
+    if (!Array.isArray(cached)) return [];
+    return cached
       .map(normalizeCustomWeightUnit)
       .filter((unit): unit is WeightUnit => unit !== null);
   } catch {
@@ -75,10 +75,8 @@ export function loadCustomWeightUnits(): WeightUnit[] {
 export function saveCustomWeightUnits(units: WeightUnit[]): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(
-      CUSTOM_WEIGHT_UNITS_STORAGE_KEY,
-      JSON.stringify(units.filter((unit) => unit.isCustom)),
-    );
+    setCloudCacheField("weightUnits", units.filter((unit) => unit.isCustom));
+    void persistCloudAppStateField("weight_units");
     emitCloudDataChanged("weight_units");
   } catch {
     // The in-memory editor remains usable when storage is unavailable.

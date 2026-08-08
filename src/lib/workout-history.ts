@@ -1,3 +1,4 @@
+import { supabase } from "@/integrations/supabase/client";
 import type { Exercise } from "./coach-exercises";
 import type { WeightUnit } from "./coach-weight-units";
 import { getWeightUnit } from "./coach-weight-units";
@@ -65,6 +66,40 @@ export type WorkoutHistorySession = {
   data: WorkoutSessionData;
 };
 
+type CloudSessionRow = {
+  id: string;
+  client_id: string;
+  program_id: string | null;
+  workout_id: string;
+  workout_name: string;
+  started_at: string;
+  completed_at: string;
+  duration_seconds: number;
+  completed_sets: number;
+  total_sets: number;
+  total_reps: number;
+  volume_by_unit: Record<string, number>;
+  session_data: WorkoutSessionData;
+};
+
+function mapSession(row: CloudSessionRow): WorkoutHistorySession {
+  return {
+    id: row.id,
+    clientId: row.client_id,
+    programId: row.program_id ?? undefined,
+    workoutId: row.workout_id,
+    workoutName: row.workout_name,
+    startedAt: row.started_at,
+    completedAt: row.completed_at,
+    durationSeconds: row.duration_seconds,
+    completedSets: row.completed_sets,
+    totalSets: row.total_sets,
+    totalReps: row.total_reps,
+    volumeByUnitId: row.volume_by_unit ?? {},
+    data: row.session_data,
+  };
+}
+
 export function createWorkoutSessionId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
@@ -82,7 +117,8 @@ function unitSnapshot(unit: WeightUnit): WorkoutSessionUnitSnapshot {
 }
 
 function nonNegativeInteger(value: unknown): number {
-  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+  const number = typeof value === "number" && Number.isFinite(value) ? value : 0;
+  return Math.max(0, Math.floor(number));
 }
 
 export function buildWorkoutSessionData({
@@ -170,33 +206,45 @@ export async function saveWorkoutSession({
   const startedAtIso = new Date(completedAt.getTime() - normalizedDuration * 1000).toISOString();
   const data = buildWorkoutSessionData({ workout, exercises, weightUnits, results });
 
-  const session: WorkoutHistorySession = {
-    id: sessionId,
-    clientId,
-    programId,
-    workoutId: workout.id,
-    workoutName: workout.name,
-    startedAt: startedAtIso,
-    completedAt: completedAtIso,
-    durationSeconds: normalizedDuration,
-    completedSets: summary.completedSets,
-    totalSets,
-    totalReps: summary.totalReps,
-    volumeByUnitId: summary.volumeByUnitId,
-    data,
-  };
-  const sessions = readSessions();
-  const existing = sessions.find((candidate) => candidate.id === sessionId);
-  if (existing) return existing;
-  window.localStorage.setItem(WORKOUT_HISTORY_STORAGE_KEY, JSON.stringify([...sessions, session]));
+  const { data: row, error } = await supabase
+    .from("workout_sessions")
+    .insert({
+      id: sessionId,
+      client_id: clientId,
+      program_id: programId ?? null,
+      workout_id: workout.id,
+      workout_name: workout.name,
+      started_at: startedAtIso,
+      completed_at: completedAtIso,
+      duration_seconds: normalizedDuration,
+      completed_sets: summary.completedSets,
+      total_sets: totalSets,
+      total_reps: summary.totalReps,
+      volume_by_unit: summary.volumeByUnitId,
+      session_data: data,
+    })
+    .select()
+    .maybeSingle();
+  if (error || !row) {
+    throw new Error("Workout history could not be saved to the cloud.");
+  }
   emitLocalEvent(LOCAL_WORKOUT_HISTORY_CHANGED_EVENT);
-  return session;
+  return mapSession(row as unknown as CloudSessionRow);
 }
 
 export async function fetchWorkoutSessions(clientId: string): Promise<WorkoutHistorySession[]> {
-  return readSessions()
-    .filter((session) => session.clientId === clientId)
-    .sort((left, right) => right.completedAt.localeCompare(left.completedAt));
+  const { data, error } = await supabase
+    .from("workout_sessions")
+    .select(
+      "id, client_id, program_id, workout_id, workout_name, started_at, completed_at, duration_seconds, completed_sets, total_sets, total_reps, volume_by_unit, session_data",
+    )
+    .eq("client_id", clientId)
+    .order("completed_at", { ascending: false });
+  if (error) {
+    console.error("Workout history could not be loaded", error);
+    return [];
+  }
+  return (data ?? []).map((row) => mapSession(row as unknown as CloudSessionRow));
 }
 
 export type LastExerciseWeight = {
@@ -216,7 +264,6 @@ export function computeLastWeightsByExercise(
   sessions: WorkoutHistorySession[],
 ): Record<string, LastExerciseWeight> {
   const map: Record<string, LastExerciseWeight> = {};
-  // Newest session wins per exercise, regardless of input order.
   const ordered = [...sessions].sort((left, right) =>
     right.completedAt.localeCompare(left.completedAt),
   );
@@ -253,7 +300,7 @@ export async function fetchLastWeightsByExercise(
   return computeLastWeightsByExercise(await fetchWorkoutSessions(clientId));
 }
 
-export function updateWorkoutSession(
+export async function updateWorkoutSession(
   clientId: string,
   sessionId: string,
   patch: {
@@ -261,40 +308,41 @@ export function updateWorkoutSession(
     durationSeconds?: number;
     completedAt?: string;
   },
-): WorkoutHistorySession | undefined {
-  const sessions = readSessions();
-  const index = sessions.findIndex(
-    (candidate) => candidate.id === sessionId && candidate.clientId === clientId,
+): Promise<void> {
+  const current = (await fetchWorkoutSessions(clientId)).find(
+    (session) => session.id === sessionId,
   );
-  if (index === -1) return undefined;
-  const current = sessions[index];
+  if (!current) return;
   const data = patch.data ?? current.data;
   const summary = computeSnapshotSummary(data);
-  const updated: WorkoutHistorySession = {
-    ...current,
-    data,
-    durationSeconds: patch.durationSeconds ?? current.durationSeconds,
-    completedAt: patch.completedAt ?? current.completedAt,
-    completedSets: summary.completedSets,
-    totalSets: summary.totalSets,
-    totalReps: summary.totalReps,
-    volumeByUnitId: summary.volumeByUnitId,
-  };
-  sessions[index] = updated;
-  window.localStorage.setItem(WORKOUT_HISTORY_STORAGE_KEY, JSON.stringify(sessions));
+  const { error } = await supabase
+    .from("workout_sessions")
+    .update({
+      session_data: data,
+      duration_seconds: nonNegativeInteger(patch.durationSeconds ?? current.durationSeconds),
+      completed_at: patch.completedAt ?? current.completedAt,
+      completed_sets: summary.completedSets,
+      total_sets: summary.totalSets,
+      total_reps: summary.totalReps,
+      volume_by_unit: summary.volumeByUnitId,
+    })
+    .eq("id", sessionId)
+    .eq("client_id", clientId);
+  if (error) throw new Error("Workout history could not be updated.");
   emitLocalEvent(LOCAL_WORKOUT_HISTORY_CHANGED_EVENT);
-  return updated;
 }
 
-export function deleteWorkoutSession(clientId: string, sessionId: string): boolean {
-  const sessions = readSessions();
-  const next = sessions.filter(
-    (candidate) => !(candidate.id === sessionId && candidate.clientId === clientId),
-  );
-  if (next.length === sessions.length) return false;
-  window.localStorage.setItem(WORKOUT_HISTORY_STORAGE_KEY, JSON.stringify(next));
+export async function deleteWorkoutSession(
+  clientId: string,
+  sessionId: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from("workout_sessions")
+    .delete()
+    .eq("id", sessionId)
+    .eq("client_id", clientId);
+  if (error) throw new Error("Workout history entry could not be deleted.");
   emitLocalEvent(LOCAL_WORKOUT_HISTORY_CHANGED_EVENT);
-  return true;
 }
 
 function computeSnapshotSummary(data: WorkoutSessionData): {
@@ -322,18 +370,4 @@ function computeSnapshotSummary(data: WorkoutSessionData): {
     }
   }
   return { completedSets, totalSets, totalReps, volumeByUnitId };
-}
-
-const WORKOUT_HISTORY_STORAGE_KEY = "no-more-copium:workout-history:v2";
-
-function readSessions(): WorkoutHistorySession[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const parsed: unknown = JSON.parse(
-      window.localStorage.getItem(WORKOUT_HISTORY_STORAGE_KEY) ?? "[]",
-    );
-    return Array.isArray(parsed) ? (parsed as WorkoutHistorySession[]) : [];
-  } catch {
-    return [];
-  }
 }

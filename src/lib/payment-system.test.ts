@@ -66,12 +66,17 @@ describe("payment manager UI overhaul", () => {
     expect(grads.filter((t) => !t.includes("black") && !t.startsWith("from-transparent"))).toEqual([]);
   });
 
-  test("Payment Mode uses the app's shared account role", () => {
+  test("cloud accounts flow uses Google sign-in only", () => {
     const accounts = read("../lib/cloud-accounts.ts");
-    expect(accounts).toMatch(/payment_manager/);
+    expect(accounts).toMatch(/bootstrapAccount/);
     const access = read("../components/account/AccountAccess.tsx");
-    expect(access).toMatch(/Payment Mode/);
-    expect(access).toMatch(/Payment Manager/);
+    expect(access).toMatch(/Continue with Google/);
+    expect(access).toMatch(/bootstrapAccount/);
+    expect(access).toMatch(/Your name/);
+    expect(access).toMatch(/Your username/);
+    expect(access).not.toMatch(/Coach Mode/);
+    expect(access).not.toMatch(/Payment Mode/);
+    expect(access).not.toMatch(/Create a new local account/);
   });
 
   test("payment routes exist and no emojis", () => {

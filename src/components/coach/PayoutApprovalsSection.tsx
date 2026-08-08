@@ -131,7 +131,7 @@ export function PayoutApprovalsSection() {
     if (!account) return;
     setWorkingId(payout.id);
     try {
-      decidePayout(payout.id, "approved", account.id);
+      await decidePayout(payout.id, "approved", account.id);
       await load();
     } finally {
       setWorkingId(null);
@@ -142,7 +142,7 @@ export function PayoutApprovalsSection() {
     if (!account || !rejectTarget) return;
     setWorkingId(rejectTarget.id);
     try {
-      decidePayout(rejectTarget.id, "rejected", account.id, rejectReason);
+      await decidePayout(rejectTarget.id, "rejected", account.id, rejectReason);
       setRejectTarget(null);
       setRejectReason("");
       await load();

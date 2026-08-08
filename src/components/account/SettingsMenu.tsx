@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { ArrowRightLeft, LogOut, Settings } from "lucide-react";
+import { LogOut, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -17,10 +17,10 @@ export function SettingsMenu() {
   const navigate = useNavigate();
   const { account, signOut } = useAccount();
 
-  const leaveAccount = async (destination: "/" | "/access") => {
+  const leaveAccount = async () => {
     await signOut();
     setOpen(false);
-    void navigate({ to: destination, replace: true });
+    void navigate({ to: "/", replace: true });
   };
 
   return (
@@ -36,24 +36,17 @@ export function SettingsMenu() {
           {account && (
             <DialogDescription>
               {account.name} · @{account.username}
+              {account.role === "coach" ? " · Coach" : " · Client"}
             </DialogDescription>
           )}
         </DialogHeader>
         <Button
           variant="outline"
           className="w-full justify-start"
-          onClick={() => void leaveAccount("/access")}
-        >
-          <ArrowRightLeft className="h-4 w-4" aria-hidden="true" />
-          Switch account
-        </Button>
-        <Button
-          variant="outline"
-          className="w-full justify-start"
-          onClick={() => void leaveAccount("/")}
+          onClick={() => void leaveAccount()}
         >
           <LogOut className="h-4 w-4" aria-hidden="true" />
-          Exit app
+          Sign out
         </Button>
       </DialogContent>
     </Dialog>
