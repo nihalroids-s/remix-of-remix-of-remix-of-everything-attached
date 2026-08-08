@@ -69,14 +69,23 @@ describe("payment manager UI overhaul", () => {
   test("cloud accounts flow uses Google sign-in only", () => {
     const accounts = read("../lib/cloud-accounts.ts");
     expect(accounts).toMatch(/bootstrapAccount/);
+    const button = read("../components/account/GoogleSignInButton.tsx");
+    expect(button).toMatch(/Continue with Google/);
+    expect(button).toMatch(/signInWithOAuth/);
+    expect(button).toMatch(/provider: "google"/);
     const access = read("../components/account/AccountAccess.tsx");
-    expect(access).toMatch(/Continue with Google/);
     expect(access).toMatch(/bootstrapAccount/);
+    expect(access).toMatch(/GoogleSignInButton/);
     expect(access).toMatch(/Your name/);
     expect(access).toMatch(/Your username/);
     expect(access).not.toMatch(/Coach Mode/);
     expect(access).not.toMatch(/Payment Mode/);
     expect(access).not.toMatch(/Create a new local account/);
+    const landing = read("../components/landing/LandingPage.tsx");
+    expect(landing).toMatch(/GoogleSignInButton/);
+    expect(landing).not.toMatch(/to="\/access"/);
+    const route = read("../routes/access.tsx");
+    expect(route).not.toMatch(/Local development prototype/);
   });
 
   test("payment routes exist and no emojis", () => {
