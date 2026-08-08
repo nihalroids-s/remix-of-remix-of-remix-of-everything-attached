@@ -41,11 +41,6 @@ export async function listLocalBlobs(): Promise<Array<{ key: string; blob: Blob 
   });
 }
 
-export async function clearLocalBlobs(): Promise<void> {
-  const database = await openDatabase();
-  await transactionRequest(database, "readwrite", (store) => store.clear());
-}
-
 function openDatabase(): Promise<IDBDatabase> {
   if (typeof indexedDB === "undefined") {
     return Promise.reject(new Error("This browser does not support local image storage."));

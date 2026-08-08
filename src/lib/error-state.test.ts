@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import { readFileSync } from "node:fs";
 
 const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");
@@ -30,29 +31,53 @@ describe("error state final audit", () => {
     expect(file).toMatch(/rounded-xl/);
   });
 
-  test("LocalPrototypeTools and BroadcastComposer use informative errors with what/why/next", () => {
-    const local = read("../components/account/LocalPrototypeTools.tsx");
+  test("payment settings and pending payments use informative errors with what/why/next", () => {
+    const settings = read("../components/chat/PaymentSettingsForm.tsx");
+    const pending = read("../components/coach/PendingPaymentsSection.tsx");
     const broadcast = read("../components/chat/BroadcastComposer.tsx");
-    const finalSeq = read("../components/chat/FinalSequenceEditor.tsx");
-    [local, broadcast, finalSeq].forEach(content=>{
+    [settings, pending, broadcast].forEach((content) => {
       expect(content).toMatch(/What happened:/);
       expect(content).toMatch(/Why:/);
       expect(content).toMatch(/What to do:/);
     });
-    expect(local).toMatch(/rounded-md/); // badge reduced
+    expect(pending).toMatch(/min-h-12/);
     expect(broadcast).toMatch(/min-h-11/);
   });
 
   test("no raw backend errors exposed in UI - no stack traces", () => {
     const files = [
       "../components/account/AccountAccess.tsx",
-      "../components/account/LocalPrototypeTools.tsx",
       "../components/chat/BroadcastComposer.tsx",
-      "../components/chat/FinalSequenceEditor.tsx",
+      "../components/chat/PaymentSettingsForm.tsx",
+      "../components/coach/PendingPaymentsSection.tsx",
       "../components/chat/ChatConversation.tsx",
       "../components/chat/CoachChatInbox.tsx",
-    ].map(read).join("\n");
+    ]
+      .map(read)
+      .join("\n");
     // Should not contain direct raw error.message without wrapping? We allow wrapping but should not have bare technical stack
     expect(files).not.toMatch(/supabase|postgres.*error|stack/iu);
+  });
+
+  test("removed prototype features leave no residues", () => {
+    // Files deleted with the feature must not exist.
+    expect(existsSync(new URL("../components/account/LocalPrototypeTools.tsx", import.meta.url))).toBe(false);
+    expect(existsSync(new URL("../lib/local-backup.ts", import.meta.url))).toBe(false);
+    expect(existsSync(new URL("../lib/local-prototype-tools.ts", import.meta.url))).toBe(false);
+    expect(existsSync(new URL("../components/chat/FinalSequenceEditor.tsx", import.meta.url))).toBe(false);
+    // No lingering references in the codebase.
+    const sources = [
+      "../components/account/SettingsMenu.tsx",
+      "../components/chat/CoachMessagingPage.tsx",
+      "../lib/chat.ts",
+      "../lib/local-media.ts",
+    ]
+      .map(read)
+      .join("\n");
+    expect(sources).not.toMatch(/LocalPrototypeTools/);
+    expect(sources).not.toMatch(/FinalSequenceEditor/);
+    expect(sources).not.toMatch(/resetLocalClientChat/);
+    expect(sources).not.toMatch(/clearLocalBlobs/);
+    expect(sources).not.toMatch(/Switch local account/);
   });
 });
