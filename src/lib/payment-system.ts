@@ -1,11 +1,4 @@
-import {
-  fetchAccounts,
-  normalizeUsername,
-  usernameKey,
-  updateLocalAccount,
-} from "./cloud-accounts";
-import { fetchJoinRequest, removeLocalJoinRequest } from "./local-join-requests";
-import { emitLocalEvent } from "./local-events";
+import { supabase } from "@/integrations/supabase/client";
 
 export type PaymentTag = "new_user" | "membership";
 
@@ -53,58 +46,109 @@ export const DEV_SHARE_PER_PAYMENT_USD = 20;
 export const LOCAL_PAYMENTS_CHANGED_EVENT = "no-more-copium:local-payments-changed";
 export const LOCAL_PAYOUTS_CHANGED_EVENT = "no-more-copium:local-payouts-changed";
 
-const PAYMENTS_STORAGE_KEY = "no-more-copium:payments:v1";
-const PAYOUTS_STORAGE_KEY = "no-more-copium:payouts:v1";
-const PAYMENT_STARTED_STORAGE_KEY = "no-more-copium:payment-started:v1";
+type CloudPaymentRow = {
+  id: string;
+  client_id: string;
+  client_username: string;
+  client_name: string;
+  amount_usd: number;
+  tag: PaymentTag;
+  note: string | null;
+  recorded_by: string;
+  recorded_at: string;
+};
+
+type CloudPayoutRow = {
+  id: string;
+  amount_usd: number;
+  screenshot_id: string | null;
+  note: string | null;
+  status: PayoutStatus;
+  submitted_by: string;
+  submitted_at: string;
+  decided_at: string | null;
+  decided_by_coach_id: string | null;
+  rejection_reason: string | null;
+};
+
+type CloudStartedRow = {
+  id: string;
+  client_id: string;
+  client_username: string;
+  client_name: string;
+  method: "card" | "paypal";
+  started_at: string;
+};
+
+function mapPayment(row: CloudPaymentRow): PaymentRecord {
+  return {
+    id: row.id,
+    clientName: row.client_name,
+    clientUsername: row.client_username,
+    amountUsd: Number(row.amount_usd),
+    tag: row.tag,
+    note: row.note ?? undefined,
+    recordedBy: row.recorded_by,
+    recordedAt: row.recorded_at,
+  };
+}
+
+function mapPayout(row: CloudPayoutRow): PayoutRecord {
+  return {
+    id: row.id,
+    amountUsd: Number(row.amount_usd),
+    screenshotId: row.screenshot_id ?? undefined,
+    note: row.note ?? undefined,
+    status: row.status,
+    submittedBy: row.submitted_by,
+    submittedAt: row.submitted_at,
+    decidedAt: row.decided_at ?? undefined,
+    decidedByCoachId: row.decided_by_coach_id ?? undefined,
+    rejectionReason: row.rejection_reason ?? undefined,
+  };
+}
+
+function mapStarted(row: CloudStartedRow): PaymentStartedRecord {
+  return {
+    id: row.id,
+    clientId: row.client_id,
+    clientUsername: row.client_username,
+    clientName: row.client_name,
+    method: row.method,
+    startedAt: row.started_at,
+  };
+}
 
 export function formatUsd(value: number): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
 }
 
 export async function fetchPayments(): Promise<PaymentRecord[]> {
-  return readPayments().sort((left, right) => right.recordedAt.localeCompare(left.recordedAt));
-}
-
-export async function recordPaymentStarted({
-  clientId,
-  method,
-}: {
-  clientId: string;
-  method: "card" | "paypal";
-}): Promise<PaymentStartedRecord> {
-  const accounts = await fetchAccounts();
-  const client = accounts.find(
-    (account) => account.role === "client" && account.id === clientId,
-  );
-  if (!client) {
-    throw new Error("No client account was found for this payment.");
+  const { data, error } = await supabase
+    .from("payments")
+    .select(
+      "id, client_id, client_username, client_name, amount_usd, tag, note, recorded_by, recorded_at",
+    )
+    .order("recorded_at", { ascending: false });
+  if (error) {
+    console.error("Payments could not be loaded", error);
+    return [];
   }
-  const record: PaymentStartedRecord = {
-    id: createPaymentId(),
-    clientId: client.id,
-    clientUsername: client.username,
-    clientName: client.name,
-    method,
-    startedAt: new Date().toISOString(),
-  };
-  const records = readPaymentStarted();
-  writePaymentStarted([...records.filter((candidate) => candidate.clientId !== client.id), record]);
-  return record;
-}
-
-export async function fetchPaymentStartedRecords(): Promise<PaymentStartedRecord[]> {
-  return readPaymentStarted().sort((left, right) =>
-    right.startedAt.localeCompare(left.startedAt),
-  );
-}
-
-export function clearPaymentStartedForClient(clientId: string): void {
-  const next = readPaymentStarted().filter((record) => record.clientId !== clientId);
-  writePaymentStarted(next);
+  return (data ?? []).map((row) => mapPayment(row as CloudPaymentRow));
 }
 
 export async function fetchPayouts(): Promise<PayoutRecord[]> {
-  return readPayouts().sort((left, right) => right.submittedAt.localeCompare(left.submittedAt));
+  const { data, error } = await supabase
+    .from("payouts")
+    .select(
+      "id, amount_usd, screenshot_id, note, status, submitted_by, submitted_at, decided_at, decided_by_coach_id, rejection_reason",
+    )
+    .order("submitted_at", { ascending: false });
+  if (error) {
+    console.error("Payouts could not be loaded", error);
+    return [];
+  }
+  return (data ?? []).map((row) => mapPayout(row as CloudPayoutRow));
 }
 
 export async function recordPayment({
@@ -118,39 +162,72 @@ export async function recordPayment({
   note?: string;
   recordedBy: string;
 }): Promise<PaymentRecord> {
-  const username = normalizeUsername(clientUsername);
-  const accounts = await fetchAccounts();
-  const client = accounts.find(
-    (account) =>
-      account.role === "client" && usernameKey(account.username) === usernameKey(username),
-  );
-  if (!client) {
-    throw new Error(
-      "No client account found with that username on this device. What happened: the username did not match any local Client. Why: usernames are case-insensitive but must match exactly. What to do: check the username against the Client's profile or create the Client account first.",
-    );
-  }
   const amount = Number.isFinite(amountUsd) && amountUsd > 0 ? amountUsd : PAYMENT_AMOUNT_USD;
-  const payments = readPayments();
-  const tag: PaymentTag = payments.some(
-    (payment) => usernameKey(payment.clientUsername) === usernameKey(client.username),
-  )
-    ? "membership"
-    : "new_user";
-  const record: PaymentRecord = {
-    id: createPaymentId(),
-    clientName: client.name,
-    clientUsername: client.username,
-    amountUsd: amount,
-    tag,
-    note: note?.trim() ? note.trim() : undefined,
-    recordedBy,
-    recordedAt: new Date().toISOString(),
-  };
-  writePayments([...payments, record]);
-  // A confirmed payment unlocks the client automatically.
-  await unlockClientAccount(client.id);
-  clearPaymentStartedForClient(client.id);
-  return record;
+  const { data, error } = await supabase.rpc("record_payment_and_unlock", {
+    p_client_username: clientUsername,
+    p_amount_usd: amount,
+    p_note: note ?? "",
+    p_recorded_by: recordedBy,
+  });
+  if (error) {
+    const message =
+      (error as { message?: string }).message ??
+      "The payment could not be recorded. What happened: cloud verification failed. Why: the username may not match a client. What to do: check the username and try again.";
+    throw new Error(message);
+  }
+  const paymentId = String(data);
+  const { data: row } = await supabase
+    .from("payments")
+    .select(
+      "id, client_id, client_username, client_name, amount_usd, tag, note, recorded_by, recorded_at",
+    )
+    .eq("id", paymentId)
+    .maybeSingle();
+  if (!row) throw new Error("Payment was recorded but could not be loaded.");
+  emitPaymentsChanged();
+  return mapPayment(row as CloudPaymentRow);
+}
+
+export async function recordPaymentStarted({
+  clientId,
+  method,
+}: {
+  clientId: string;
+  method: "card" | "paypal";
+}): Promise<PaymentStartedRecord> {
+  const { data, error } = await supabase.rpc("record_payment_started", {
+    p_client_id: clientId,
+    p_method: method,
+  });
+  if (error) {
+    throw new Error("The payment start could not be recorded.");
+  }
+  void data;
+  const { data: row } = await supabase
+    .from("payment_started")
+    .select("id, client_id, client_username, client_name, method, started_at")
+    .eq("client_id", clientId)
+    .order("started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!row) throw new Error("Payment start was recorded but could not be loaded.");
+  return mapStarted(row as CloudStartedRow);
+}
+
+export async function fetchPaymentStartedRecords(): Promise<PaymentStartedRecord[]> {
+  const { data, error } = await supabase
+    .from("payment_started")
+    .select("id, client_id, client_username, client_name, method, started_at")
+    .order("started_at", { ascending: false });
+  if (error) {
+    console.error("Payment started records could not be loaded", error);
+    return [];
+  }
+  return (data ?? []).map((row) => mapStarted(row as CloudStartedRow));
+}
+
+export function clearPaymentStartedForClient(clientId: string): void {
+  void supabase.from("payment_started").delete().eq("client_id", clientId);
 }
 
 export function submitPayout({
@@ -163,48 +240,51 @@ export function submitPayout({
   screenshotId?: string;
   note?: string;
   submittedBy: string;
-}): PayoutRecord {
+}): Promise<PayoutRecord> {
   const amount = Number.isFinite(amountUsd) && amountUsd > 0 ? amountUsd : 0;
   if (amount <= 0) {
-    throw new Error(
-      "Enter a payout amount greater than zero. What happened: the amount was empty or invalid. Why: payouts need a positive USD amount. What to do: enter how much you sent and try again.",
+    return Promise.reject(
+      new Error(
+        "Enter a payout amount greater than zero. What happened: the amount was empty or invalid. Why: payouts need a positive USD amount. What to do: enter how much you sent and try again.",
+      ),
     );
   }
-  const record: PayoutRecord = {
-    id: createPaymentId(),
-    amountUsd: amount,
-    screenshotId: screenshotId?.trim() ? screenshotId.trim() : undefined,
-    note: note?.trim() ? note.trim() : undefined,
-    status: "pending",
-    submittedBy,
-    submittedAt: new Date().toISOString(),
-  };
-  const payouts = readPayouts();
-  writePayouts([...payouts, record]);
-  return record;
+  return (async () => {
+    const { data, error } = await supabase.rpc("submit_payout", {
+      p_amount_usd: amount,
+      p_screenshot_id: screenshotId ?? "",
+      p_note: note ?? "",
+      p_submitted_by: submittedBy,
+    });
+    if (error) throw new Error("The payout could not be submitted.");
+    const payoutId = String(data);
+    const { data: row } = await supabase
+      .from("payouts")
+      .select(
+        "id, amount_usd, screenshot_id, note, status, submitted_by, submitted_at, decided_at, decided_by_coach_id, rejection_reason",
+      )
+      .eq("id", payoutId)
+      .maybeSingle();
+    if (!row) throw new Error("Payout was submitted but could not be loaded.");
+    emitPayoutsChanged();
+    return mapPayout(row as CloudPayoutRow);
+  })();
 }
 
-export function decidePayout(
+export async function decidePayout(
   payoutId: string,
   decision: "approved" | "rejected",
   coachId: string,
   reason?: string,
-): PayoutRecord | undefined {
-  const payouts = readPayouts();
-  const index = payouts.findIndex((payout) => payout.id === payoutId);
-  if (index === -1) return undefined;
-  const current = payouts[index];
-  if (current.status !== "pending") return current;
-  const decided: PayoutRecord = {
-    ...current,
-    status: decision,
-    decidedAt: new Date().toISOString(),
-    decidedByCoachId: coachId,
-    rejectionReason: decision === "rejected" ? reason?.trim() || undefined : undefined,
-  };
-  payouts[index] = decided;
-  writePayouts(payouts);
-  return decided;
+): Promise<void> {
+  const { error } = await supabase.rpc("decide_payout", {
+    p_payout_id: payoutId,
+    p_decision: decision,
+    p_coach_id: coachId,
+    p_reason: reason ?? "",
+  });
+  if (error) throw new Error("The payout could not be updated.");
+  emitPayoutsChanged();
 }
 
 export function paymentTotals(
@@ -225,68 +305,12 @@ export function paymentTotals(
   return { count, owedUsd, paidOutUsd, remainingUsd };
 }
 
-async function unlockClientAccount(clientId: string): Promise<void> {
-  await updateLocalAccount(clientId, {
-    onboardingStep: 7,
-    onboardingCompletedAt: new Date().toISOString(),
-  });
-  const request = await fetchJoinRequest(clientId);
-  if (request) removeLocalJoinRequest(clientId);
-}
-
-function readPaymentStarted(): PaymentStartedRecord[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const parsed: unknown = JSON.parse(
-      window.localStorage.getItem(PAYMENT_STARTED_STORAGE_KEY) ?? "[]",
-    );
-    return Array.isArray(parsed) ? (parsed as PaymentStartedRecord[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function writePaymentStarted(records: PaymentStartedRecord[]): void {
+function emitPaymentsChanged(): void {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(PAYMENT_STARTED_STORAGE_KEY, JSON.stringify(records));
-  emitLocalEvent(LOCAL_PAYMENTS_CHANGED_EVENT);
+  window.dispatchEvent(new Event(LOCAL_PAYMENTS_CHANGED_EVENT));
 }
 
-function createPaymentId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `pm_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function readPayments(): PaymentRecord[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const parsed: unknown = JSON.parse(window.localStorage.getItem(PAYMENTS_STORAGE_KEY) ?? "[]");
-    return Array.isArray(parsed) ? (parsed as PaymentRecord[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function writePayments(payments: PaymentRecord[]): void {
+function emitPayoutsChanged(): void {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(PAYMENTS_STORAGE_KEY, JSON.stringify(payments));
-  emitLocalEvent(LOCAL_PAYMENTS_CHANGED_EVENT);
-}
-
-function readPayouts(): PayoutRecord[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const parsed: unknown = JSON.parse(window.localStorage.getItem(PAYOUTS_STORAGE_KEY) ?? "[]");
-    return Array.isArray(parsed) ? (parsed as PayoutRecord[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function writePayouts(payouts: PayoutRecord[]): void {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(PAYOUTS_STORAGE_KEY, JSON.stringify(payouts));
-  emitLocalEvent(LOCAL_PAYOUTS_CHANGED_EVENT);
+  window.dispatchEvent(new Event(LOCAL_PAYOUTS_CHANGED_EVENT));
 }

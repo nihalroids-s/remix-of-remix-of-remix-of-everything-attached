@@ -140,7 +140,7 @@ export function PayoutsPage() {
         await putLocalBlob(payoutScreenshotKey(screenshotId), file);
       }
       try {
-        submitPayout({
+        await submitPayout({
           amountUsd: Number(amount),
           screenshotId,
           note,

@@ -1,4 +1,6 @@
 import { DEFAULT_WEIGHT_UNIT_ID, getWeightIncrement } from "./coach-weight-units";
+import { getCloudCache, persistCloudAppStateField, setCloudCacheField } from "./cloud-cache";
+
 import { emitCloudDataChanged } from "./cloud-events";
 
 export type SetType =
@@ -228,11 +230,9 @@ function normalizeWorkout(value: unknown): ProgramWorkout | null {
 export function loadWorkouts(): ProgramWorkout[] {
   if (typeof window === "undefined") return [];
   try {
-    const stored = window.localStorage.getItem(WORKOUTS_STORAGE_KEY);
-    if (!stored) return [];
-    const parsed: unknown = JSON.parse(stored);
-    if (!Array.isArray(parsed)) return [];
-    const normalized = parsed
+    const cached = getCloudCache().workouts;
+    if (!Array.isArray(cached)) return [];
+    const normalized = cached
       .map(normalizeWorkout)
       .filter((workout): workout is ProgramWorkout => workout !== null);
     return makeWorkoutNamesUnique(normalized);
@@ -244,7 +244,8 @@ export function loadWorkouts(): ProgramWorkout[] {
 export function saveWorkouts(workouts: ProgramWorkout[]): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(WORKOUTS_STORAGE_KEY, JSON.stringify(workouts));
+    setCloudCacheField("workouts", workouts);
+    void persistCloudAppStateField("workouts");
     emitCloudDataChanged("workouts");
   } catch {
     // Storage can be unavailable or full; the in-memory editor remains usable.

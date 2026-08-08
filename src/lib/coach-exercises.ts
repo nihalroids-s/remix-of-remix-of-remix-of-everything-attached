@@ -1,4 +1,6 @@
 import { emitCloudDataChanged } from "./cloud-events";
+import { getCloudCache, persistCloudAppStateField, setCloudCacheField } from "./cloud-cache";
+
 
 export type Exercise = {
   id: string;
@@ -66,11 +68,9 @@ function normalizeExercise(value: unknown): Exercise | null {
 export function loadExercises(): Exercise[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(EXERCISES_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.map(normalizeExercise).filter((e): e is Exercise => e !== null);
+    const cached = getCloudCache().exercises;
+    if (!Array.isArray(cached)) return [];
+    return cached.map(normalizeExercise).filter((e): e is Exercise => e !== null);
   } catch {
     return [];
   }
@@ -79,7 +79,8 @@ export function loadExercises(): Exercise[] {
 export function saveExercises(exercises: Exercise[]): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(EXERCISES_STORAGE_KEY, JSON.stringify(exercises));
+    setCloudCacheField("exercises", exercises);
+    void persistCloudAppStateField("exercises");
     emitCloudDataChanged("exercises");
   } catch {
     // ignore

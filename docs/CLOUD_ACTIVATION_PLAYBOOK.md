@@ -1,62 +1,53 @@
-# No More Copium — Cloud Activation Playbook
+# No More Copium — Cloud Activation & Launch Playbook
 
-**Created:** 2026-08-06
-**Status:** PREP COMPLETE — repo now contains `supabase/` (migrations + edge functions + config). Activation happens in Lovable + Supabase dashboard.
-**Goal:** Real Google-login accounts. The single allowlisted Google email (secret `COACH_GOOGLE_EMAIL`) becomes the Coach; every other Google account becomes a Client automatically. No more local account picker, no more export/import.
+**Updated:** 2026-08-08 (cloud runtime delivered — Google-only accounts)
+**Status:** ✅ Cloud runtime implemented in code. Lovable auto-applies `supabase/migrations/` on deploy, so no manual SQL is needed.
+**Goal:** Real Google login. The single allowlisted Google email (`COACH_GOOGLE_EMAIL`) becomes the Coach; every other Google account becomes a Client. All data lives in Supabase (fresh start).
 
 ---
 
-## 1. What is already in the repo (this patch)
+## 1. What is already live (verified 2026-08-08)
 
-- `supabase/migrations/` — the 10 archived migrations (accounts, programs, workouts, chat, onboarding, progress pictures, Google auth) **plus** `20260806120000_username_rules_payment_and_paused_tables.sql`:
-  - New username rules: A–Z, a–z, 0–9, underscore only, 3–30 chars, case-insensitive uniqueness
-  - New tables: `payments`, `payouts`, `payment_started`, `payment_settings`, `paused_workouts` (mirrors the local models exactly)
-  - Row Level Security with `current_account_id()`, `is_coach()`, `is_payment_manager()` helpers
-- `supabase/functions/account-bootstrap/` — Google login → creates the app account; **role is decided by `COACH_GOOGLE_EMAIL`**; updated for the new username rules; preview username now `client_preview`
-- `supabase/functions/program-cover-media/` + `progress-picture-media/` — restored media helpers
-- `supabase/config.toml` — CLI config (Lovable will regenerate its own when Cloud is enabled)
+- **Lovable Cloud enabled** on project `48681bee-...`; Supabase project `crvofsqxxxdqyhxnaiqw` (Tokyo, Tiny, 0.27/2 GB).
+- **Google sign-in: "Managed by Lovable"** — OAuth fully configured, nothing to touch.
+- **Secret set:** `COACH_GOOGLE_EMAIL` (created Aug 7) + `LOVABLE_API_KEY`.
+- **Edge functions deployed:** `account-bootstrap` (Google → Coach/Client via COACH_GOOGLE_EMAIL), `program-cover-media`, `progress-picture-media` — all responding (verified).
+- **Tables exist:** app_accounts, app_state, workout_sessions, chat_threads/messages/reads, progress_picture_batches/pictures, payments, payouts, payment_started, payment_settings, paused_workouts (all verified).
+- **Storage buckets:** `progress-pictures`, `program-covers`.
 
-## 2. Lovable-side steps (you, in order)
+## 2. What this code patch adds
 
-1. **Enable Cloud** on the Lovable project (Project settings → Cloud → enable). Lovable provisions a Supabase project and adds `SUPABASE_URL`/`SUPABASE_ANON_KEY` to the app environment.
-2. **Connect Google OAuth** in Supabase: Dashboard → Authentication → Providers → Google → paste the OAuth Client ID/Secret from a Google Cloud project (create credentials → OAuth client → Web application; add redirect URI `https://<project-ref>.supabase.co/auth/v1/callback`).
-3. **Apply migrations:** Dashboard → SQL Editor → run each file in `supabase/migrations/` in filename order (or `supabase db push` from CLI after `supabase link`).
-4. **Deploy edge functions:** Dashboard → Edge Functions → deploy `account-bootstrap`, `program-cover-media`, `progress-picture-media` (or `supabase functions deploy`). `verify_jwt = false` per config (functions verify the Google token themselves).
-5. **Set secrets:** Dashboard → Edge Functions → Secrets:
-   - `COACH_GOOGLE_EMAIL` = the exact Gmail that should get Coach mode (lowercase).
-   - Do **not** put this in chat/GitHub.
-6. **Site URL / redirect:** Supabase → Authentication → URL Configuration → Site URL = your Lovable preview/production URL; add redirect URLs.
+- **Google-only access flow** (`/access`): "Continue with Google" → new clients pick Your name + Username (A–Z/a–z/0–9/underscore, 3–30) → onboarding → payment. Coach email skips straight to Coach mode.
+- **Full cloud data layer** (replaces localStorage for the launch path):
+  - Accounts via `account-bootstrap` edge function
+  - Programs/exercises/workouts/weight units via `app_state` (jsonb)
+  - Chat via `chat_threads`/`chat_messages`/`chat_reads` + `unread_counts` RPC
+  - Workout history via `workout_sessions` (incl. edit/delete)
+  - Paused workouts via `paused_workouts`
+  - Payments/payouts/payment_started/payment_settings via tables + SECURITY DEFINER RPCs (`record_payment_and_unlock`, `submit_payout`, `decide_payout`, `record_payment_started`, `upsert_payment_settings`, `append_onboarding_messages`)
+- **New migration `20260808130000_cloud_runtime.sql`**: onboarding columns on app_accounts, table grants + policies, chat write policies, workout update/delete policies, RPCs. Lovable applies it automatically on deploy.
+- **Removed**: local account picker (Coach Mode/Client Mode/Payment Mode buttons), export/import, local prototype tools, final-sequence editor (already gone), old Supabase runtime files.
 
-## 3. What the auth flow will be (next phase — storage layer rewrite)
+## 3. Deploy steps (just publish)
 
-- Access page shows **"Continue with Google"** only (role picker gone).
-- Google sign-in → `account-bootstrap` edge function:
-  - Email == `COACH_GOOGLE_EMAIL` → creates/returns the **Coach** account → coach mode.
-  - Any other email → creates/returns a **Client** account; first time requires **Your name** + **Username** (new rules) → onboarding → payment final sequence.
-- All data (accounts, programs, workouts, chat, history, payments, paused workouts) moves from localStorage to Supabase tables.
-- Export/import, local account switching, and the local coach/client picker are removed.
+1. Push/apply this patch in Lovable (dry-run → apply → build).
+2. Lovable Cloud automatically runs the new migration on deploy. **Verify** in Database → Tables: `payments`, `payouts`, `payment_started`, `payment_settings`, `paused_workouts` exist AND `app_accounts` has `onboarding_step` + `onboarding_completed_at` columns.
+3. If edge functions need redeploying: Cloud → Edge Functions → deploy all 3 (they're in the repo).
+4. Confirm `COACH_GOOGLE_EMAIL` secret is the exact Gmail that should be the Coach.
 
-## 4. Data migration (local → cloud)
+## 4. Launch test
 
-- Local prototype data lives in the browser's localStorage/IndexedDB **on your phone only**.
-- Plan: after Cloud works, we add a one-time "cloud sync" path OR start fresh (recommended for launch: start fresh, keep local data as reference). Coach content (programs/exercises) can be re-created via a seed edge function if needed.
+1. Open the deployed app → **Continue with Google** → sign in with the coach Gmail → lands in **Coach mode**.
+2. Coach: create exercises + a program + workouts (saved to cloud `app_state`).
+3. Sign out → open in a fresh browser/incognito → **Continue with Google** with any other Gmail → enters name + username → onboarding questions → Hell yeah → final message → Card/PayPal payment box → "Are you done with the payment?" → Yes → "Please wait for me to verify your payment."
+4. Coach dashboard → **Pending payments** → enter provider transaction ID → **Verify & unlock** → client enters the app and sees the program.
 
-## 5. Remix-proofing (your concern)
+## 5. Still local (device-only, follow-up)
 
-- Because everything cloud-related now lives in the repo (`supabase/` folder), a Lovable remix **keeps** migrations + functions + config.
-- What does NOT survive a remix: the **secrets** (`COACH_GOOGLE_EMAIL`) and the Supabase project link itself. After any remix:
-  1. Re-enable Cloud in the new project (or re-link the same Supabase project).
-  2. Re-set `COACH_GOOGLE_EMAIL` secret.
-  3. Re-deploy edge functions.
-  4. Migrations are already applied on the linked project; `supabase/config.toml` may be regenerated by Lovable — that's fine.
-- Documented here so the reactivation is a 5-minute checklist, not a re-discovery.
+- Chat images, program covers, progress pictures files (stored in IndexedDB on-device). Metadata/features work; cross-device media sync is a later phase.
+- Payment Manager partner page (PayoutsPage) is coach-side in cloud; the payout-submit RPC supports a future payment_manager role.
+- Broadcasts, legacy join requests (local; unused in the new payment flow).
 
-## 6. Launch checklist (final)
+## 6. Remix-proofing
 
-- [ ] Cloud enabled + Supabase linked
-- [ ] Google OAuth connected (redirect URI correct)
-- [ ] All migrations applied
-- [ ] Edge functions deployed + `COACH_GOOGLE_EMAIL` secret set
-- [ ] App rebuilt with the storage layer on Supabase (next phase)
-- [ ] Stripe/PayPal links pasted into Messaging → Payment
-- [ ] Test: coach email → coach mode; second Google → client onboarding → pay → unlock
+After any Lovable remix: re-link Cloud (or the same Supabase project), re-set the `COACH_GOOGLE_EMAIL` secret, redeploy edge functions. Migrations already applied stay; new `supabase/migrations/` files auto-apply on the next deploy. `supabase/config.toml` is Lovable-managed — leave it.

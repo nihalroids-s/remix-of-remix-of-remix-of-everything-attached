@@ -1,4 +1,6 @@
 import { emitCloudDataChanged } from "./cloud-events";
+import { getCloudCache, persistCloudAppStateField, setCloudCacheField } from "./cloud-cache";
+
 
 export type Weekday =
   | "sunday"
@@ -161,11 +163,9 @@ function normalizeProgram(value: unknown): ProgramSummary | null {
 export function loadPrograms(): ProgramSummary[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(PROGRAMS_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.map(normalizeProgram).filter((p): p is ProgramSummary => p !== null);
+    const cached = getCloudCache().programs;
+    if (!Array.isArray(cached)) return [];
+    return cached.map(normalizeProgram).filter((p): p is ProgramSummary => p !== null);
   } catch {
     return [];
   }
@@ -192,7 +192,8 @@ export function removeWorkoutFromAssignments(
 export function savePrograms(programs: ProgramSummary[]): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(PROGRAMS_STORAGE_KEY, JSON.stringify(programs));
+    setCloudCacheField("programs", programs);
+    void persistCloudAppStateField("programs");
     emitCloudDataChanged("programs");
   } catch {
     // ignore quota / access errors
